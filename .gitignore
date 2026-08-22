@@ -1,0 +1,34 @@
+# Local secrets and environment files
+.env
+.env.*
+!.env.example
+supabase/.temp/
+supabase/.branches/
+
+# OAuth client secrets must never be committed (keep the publishable key only)
+client/
+client_secret*.json
+**/client_secret*.json
+*-service-role*.json
+
+# Dependencies and generated build output
+node_modules/
+desktop/node_modules/
+desktop/src-tauri/target/
+standalone/dist/
+desktop/src-tauri/gen/android/app/build/
+desktop/src-tauri/gen/android/app/src/main/jniLibs/
+
+# OS/editor files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Test screenshots / ad-hoc artifacts
+*-test.png
+/menu-test.png
+
+# Android gradle cache (generated)
+desktop/src-tauri/gen/android/.gradle/
+desktop/src-tauri/gen/android/build/

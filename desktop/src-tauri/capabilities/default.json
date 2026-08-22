@@ -1,0 +1,6 @@
+{
+  "identifier": "default",
+  "description": "ORBIT grants the webview NO core and NO plugin permissions. Every native call goes through the seven app-defined commands registered in main.rs, which are not permission-gated. Nothing here is granted 'just in case'. If a future feature needs a core or plugin permission, add it here with a one-line reason.",
+  "windows": ["main"],
+  "permissions": []
+}

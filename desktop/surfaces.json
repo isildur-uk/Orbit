@@ -1,0 +1,17 @@
+{
+  "_comment": "Single-surface manifest for the Personal Network native shell.",
+  "version": "0.1.0",
+  "publisher": "Isildur",
+  "surfaces": [
+    {
+      "key": "personal",
+      "productName": "ORBIT-Personal-Network",
+      "title": "ORBIT - Personal Network",
+      "payload": "standalone/dist/ORBIT-personal-network.html",
+      "width": 1760,
+      "height": 1080,
+      "minWidth": 1100,
+      "minHeight": 720
+    }
+  ]
+}

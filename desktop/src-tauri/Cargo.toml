@@ -1,0 +1,60 @@
+[package]
+name = "orbit-desktop"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.77.2"
+description = "ORBIT Personal Network native shell"
+publish = false
+
+[lib]
+name = "orbit_desktop_lib"
+path = "src/lib.rs"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+# ONE crate. The surface (orbit | analyse | charting | database | context) is chosen
+# at build time by the ORBIT_SURFACE environment variable, which build.rs reads from
+# ../surfaces.json. There is deliberately no per-surface crate and no per-surface
+# tauri.conf.json: five copies would drift, and drift is the failure we are removing.
+
+# VERSION PINS - EXACT, not a floating range.
+# Tauri v2 has changed public signatures between POINT releases (see the risk list
+# in ../README.md, item 1). A range like "2" would let a `cargo update` on a machine
+# with no toolchain to spare silently move the shell onto a different API and turn a
+# reproducible build into a debugging session. These two are pinned with "=" so the
+# resolver cannot move them at all:
+#   tauri       = 2.11.5   (latest stable v2 at time of writing; MSRV 1.77.2)
+#   tauri-build = 2.6.3    (its matching build companion)
+# Both resolve tauri-utils ^2.9.3, which is the coupling that actually matters -
+# a mismatched tauri / tauri-build pair fails at codegen, not at compile.
+# To move deliberately: change BOTH lines together, rebuild, rerun verify-stamps.ps1.
+# serde / serde_json / flate2 stay on caret: they are stable, and Cargo.lock pins
+# the exact patch. Cargo.lock is created by the first build and is NOT gitignored.
+# Commit it when it appears.
+
+[build-dependencies]
+tauri-build = { version = "=2.6.3", features = [] }
+serde_json = "1"
+flate2 = "1"
+
+[dependencies]
+# NOTE: the "devtools" feature is deliberately NOT enabled. Release builds must not
+# ship developer tools. Do not add it.
+tauri = { version = "=2.11.5", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+flate2 = "1"
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
+
+# Build scripts and their dependencies compile unoptimised by default. build.rs
+# gzips a 41 MB payload through miniz_oxide; at opt-level 0 that takes minutes.
+[profile.dev.build-override]
+opt-level = 2
+
+[profile.release.build-override]
+opt-level = 2

@@ -1,0 +1,424 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="dark">
+  <meta name="theme-color" content="#181818">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1024 1024'%3E%3Crect width='1024' height='1024' fill='%23181818'/%3E%3Cellipse cx='512' cy='512' rx='346' ry='218' transform='rotate(-26 512 512)' fill='none' stroke='%23da291c' stroke-width='28'/%3E%3Ccircle cx='512' cy='512' r='176' fill='none' stroke='%23fff' stroke-width='34'/%3E%3Ccircle cx='778' cy='318' r='34' fill='%23da291c'/%3E%3C/svg%3E">
+  <title>ORBIT Network</title>
+  <link rel="stylesheet" href="../_shared/css/tokens.css">
+  <link rel="stylesheet" href="network.css?v=20260822-ferrari-gradient-pass">
+</head>
+<body>
+  <div id="boot-screen" class="boot-screen" role="status" aria-live="polite">
+    <div class="boot-inner">
+      <div class="wordmark">OR<span>BIT</span></div>
+      <div class="product-label">PERSONAL NETWORK</div>
+      <div id="boot-spinner" class="boot-spinner" aria-hidden="true"></div>
+      <p id="boot-message" class="boot-message">Opening your local workspace…</p>
+      <div id="boot-recovery" class="boot-recovery" hidden>
+        <p id="boot-recovery-message">Orbit could not finish loading.</p>
+        <button type="button" class="toolbar-button primary" id="boot-reload">Reload Orbit</button>
+      </div>
+    </div>
+  </div>
+  <script>
+    /* Boot guard: the app must never be left on a blank, frozen screen. If the
+     * scripts fail to load or boot() never settles, this reveals a visible,
+     * actionable recovery action instead of an empty page. */
+    (function () {
+      window.__ORBIT_BOOTED__ = false;
+      function showRecovery(detail) {
+        if (window.__ORBIT_BOOTED__) return;
+        var box = document.getElementById("boot-recovery"),
+            spin = document.getElementById("boot-spinner"),
+            note = document.getElementById("boot-message");
+        if (spin) spin.hidden = true;
+        if (note) note.hidden = true;
+        if (box) box.hidden = false;
+        var msg = document.getElementById("boot-recovery-message");
+        if (msg && detail) msg.textContent = "Orbit could not finish loading (" + String(detail).slice(0, 160) + "). Reload to try again.";
+      }
+      window.__ORBIT_BOOT_FAIL__ = showRecovery;
+      window.addEventListener("error", function (event) {
+        if (!window.__ORBIT_BOOTED__) showRecovery(event && event.message);
+      });
+      window.addEventListener("unhandledrejection", function (event) {
+        if (!window.__ORBIT_BOOTED__) showRecovery(event && event.reason && (event.reason.message || event.reason));
+      });
+      /* Long-stop: if nothing has taken over the screen in 12s, offer recovery. */
+      setTimeout(function () { showRecovery("it is taking longer than expected"); }, 12000);
+      document.addEventListener("click", function (event) {
+        if (event.target && event.target.id === "boot-reload") location.reload();
+      });
+    })();
+  </script>
+  <section id="auth-shell" class="auth-shell" aria-labelledby="auth-title" hidden>
+    <div class="auth-frame">
+      <div class="auth-brand"><div class="wordmark">OR<span>BIT</span></div><div class="product-label">PERSONAL NETWORK</div></div>
+      <div class="auth-copy"><div class="section-kicker">LOCAL ACCOUNT</div><h1 id="auth-title">Your network, ready when you are.</h1><p>Set up a local Orbit account to keep your personal network and relationship context on this device.</p></div>
+      <div class="auth-card">
+        <div class="auth-switch" role="tablist" aria-label="Orbit account access">
+          <button type="button" class="auth-switch-button active" role="tab" aria-selected="true" data-auth-mode="signup">Create account</button>
+          <button type="button" class="auth-switch-button" role="tab" aria-selected="false" data-auth-mode="signin">Sign in</button>
+        </div>
+        <form id="auth-signup-form" data-auth-panel="signup" role="tabpanel">
+          <label>Your name<input name="name" required maxlength="120" autocomplete="name" placeholder="e.g. Alex Smith"></label>
+          <label>Email address<input name="email" required type="email" maxlength="240" autocomplete="email" placeholder="you@example.com"></label>
+          <label>Local password<input name="password" required type="password" minlength="6" maxlength="160" autocomplete="new-password" placeholder="At least 6 characters"></label>
+          <button class="toolbar-button primary auth-submit" type="submit">Create local account</button>
+        </form>
+        <form id="auth-signin-form" data-auth-panel="signin" role="tabpanel" hidden>
+          <label>Email address<input name="email" required type="email" maxlength="240" autocomplete="email" placeholder="you@example.com"></label>
+          <label>Local password<input name="password" required type="password" minlength="6" maxlength="160" autocomplete="current-password" placeholder="Your local password"></label>
+          <button class="toolbar-button primary auth-submit" type="submit">Sign in to Orbit</button>
+        </form>
+        <div class="auth-divider"><span>OR CONTINUE WITH</span></div>
+        <div class="auth-social" aria-label="Social sign in">
+          <button class="toolbar-button auth-social-button" type="button" data-auth-provider="google">Google</button>
+          <button class="toolbar-button auth-social-button" type="button" data-auth-provider="apple">Apple</button>
+          <button class="toolbar-button auth-social-button" type="button" data-auth-provider="facebook">Facebook</button>
+        </div>
+        <p id="auth-status" class="auth-status" role="status" aria-live="polite"></p>
+      </div>
+    </div>
+  </section>
+
+  <div id="network-app" class="network-app" hidden>
+    <aside class="intel-panel" aria-label="Network intelligence">
+      <div class="identity-lockup">
+        <div class="wordmark">OR<span>BIT</span></div>
+        <div class="product-label">PERSONAL NETWORK</div>
+      </div>
+
+      <div class="panel-section source-section">
+        <div class="section-kicker">INPUT SOURCES</div>
+        <div class="source-list" id="source-list"></div>
+      </div>
+
+      <div class="panel-section analysed-section">
+        <div class="section-kicker">ANALYSED</div>
+        <div class="metric-row"><strong data-stat="interactions">0</strong><span>INTERACTIONS</span></div>
+        <div class="metric-row"><strong data-stat="people">0</strong><span>PEOPLE</span></div>
+        <div class="metric-row"><strong data-stat="relationships">0</strong><span>RELATIONSHIPS</span></div>
+      </div>
+
+      <div class="panel-section surfaced-section">
+        <div class="section-kicker">SURFACED</div>
+        <div class="surface-row"><strong data-stat="introductions">0</strong><span>INTRODUCTIONS</span></div>
+        <div class="surface-row"><strong data-stat="reconnect">0</strong><span>RECONNECT</span></div>
+        <div class="surface-row"><strong data-stat="promises">0</strong><span>OPEN PROMISES</span></div>
+        <div class="surface-row"><strong data-stat="opportunities">0</strong><span>OPPORTUNITIES</span></div>
+      </div>
+
+      <div class="intel-note" id="storage-note"></div>
+    </aside>
+
+    <main class="workspace">
+      <header class="network-toolbar">
+        <div class="toolbar-context">
+          <span class="toolbar-title">NETWORK / ORBIT</span>
+          <span class="toolbar-status" id="sync-status">READY</span>
+        </div>
+        <div class="toolbar-actions">
+          <label class="search-control">
+            <span class="visually-hidden">Search people</span>
+            <input id="network-search" type="search" placeholder="Search people…" autocomplete="off">
+          </label>
+          <button class="toolbar-button" type="button" data-action="import-contacts">Import</button>
+          <button class="toolbar-button" type="button" data-action="import-calendar">Calendar</button>
+          <button class="toolbar-button" type="button" data-action="vault">Vault</button>
+          <button class="toolbar-button" type="button" data-action="connections">Connect</button>
+          <button class="toolbar-button account-button" type="button" data-action="account"><span id="account-name">Account</span></button>
+          <button class="toolbar-button" type="button" data-action="opportunities" aria-pressed="false">Opportunities</button>
+          <button class="toolbar-button primary" type="button" data-action="add-person">Add person</button>
+        </div>
+      </header>
+
+      <section class="network-stage" aria-label="Personal relationship network">
+        <div class="orbit-backdrop" aria-hidden="true">
+          <div class="orbit-ring ring-deep"><span>DEEP FIELD</span></div>
+          <div class="orbit-ring ring-outer"><span>OUTER ORBIT</span></div>
+          <div class="orbit-ring ring-working"><span>WORKING ORBIT</span></div>
+          <div class="orbit-ring ring-inner"><span>INNER CIRCLE</span></div>
+        </div>
+        <div id="network" class="network-canvas"></div>
+        <div id="network-empty" class="network-empty" hidden>
+          <button class="dossier-close empty-close" type="button" data-action="dismiss-empty" aria-label="Dismiss"><svg class="close-icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M4 4l8 8M12 4l-8 8" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></button>
+          <div class="empty-kicker">YOUR NETWORK STARTS HERE</div>
+          <h1>Bring the first relationship into orbit.</h1>
+          <p>Add a person manually, import your contacts, or right-click the chart to drop someone in. The graph places people by relationship as you build it.</p>
+          <button class="toolbar-button primary" type="button" data-action="add-person">Add first person</button>
+        </div>
+        <div class="network-legend" aria-label="Orbit legend">
+          <span><i class="legend-dot me"></i>ME</span>
+          <span><i class="legend-ring inner"></i>INNER</span>
+          <span><i class="legend-ring working"></i>WORKING</span>
+          <span><i class="legend-ring outer"></i>OUTER</span>
+          <span><i class="legend-ring deep"></i>DEEP</span>
+          <span><i class="legend-line"></i>LINK</span>
+        </div>
+        <div class="graph-tools" aria-label="Network tools">
+          <button type="button" class="graph-tool icon-only" data-action="undo" title="Undo (Ctrl+Z)" disabled aria-label="Undo">
+            <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M6 4L2.5 7.5 6 11M2.8 7.5H10a3.5 3.5 0 0 1 0 7H7" stroke="currentColor" stroke-width="1.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+          <button type="button" class="graph-tool icon-only" data-action="redo" title="Redo (Ctrl+Y)" disabled aria-label="Redo">
+            <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M10 4l3.5 3.5L10 11M13.2 7.5H6a3.5 3.5 0 0 0 0 7h3" stroke="currentColor" stroke-width="1.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+          <button type="button" class="graph-tool icon-only" data-action="recenter" title="Recentre the chart" aria-label="Recentre the chart">
+            <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><circle cx="8" cy="8" r="2" fill="currentColor"/><path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><circle cx="8" cy="8" r="5.5" fill="none" stroke="currentColor" stroke-width="1.1"/></svg>
+          </button>
+          <button type="button" class="graph-tool icon-only" data-action="theme" title="Chart background" aria-label="Chart background">
+            <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M8 1.5a6.5 6.5 0 1 0 0 13c1 0 1.5-.7 1.5-1.5 0-.9-.8-1.3-.8-2.1 0-.6.5-1.1 1.2-1.1H12A2.5 2.5 0 0 0 14.5 7 6.6 6.6 0 0 0 8 1.5Z" fill="none" stroke="currentColor" stroke-width="1.3"/><circle cx="5" cy="6.5" r="1" fill="currentColor"/><circle cx="8" cy="5" r="1" fill="currentColor"/><circle cx="11" cy="6.5" r="1" fill="currentColor"/></svg>
+          </button>
+          <span class="graph-tools-hint">Right-click (or long-press) a person to link, edit or photo · the chart to add someone</span>
+        </div>
+        <div id="rubber-band" class="rubber-band" aria-hidden="true"></div>
+        <svg id="link-ghost" class="link-ghost" aria-hidden="true"><line x1="0" y1="0" x2="0" y2="0"></line><circle cx="0" cy="0" r="4"></circle></svg>
+        <div id="connect-hint" class="connect-hint" role="status" hidden>Click another person to connect them · press Esc to cancel</div>
+        <div id="edge-remove" class="edge-remove" role="status" hidden>
+          <span id="edge-remove-label" class="edge-remove-label">Relationship selected</span>
+          <span id="edge-remove-note" class="edge-remove-note"></span>
+          <button type="button" class="toolbar-button" data-action="remove-edge">Remove</button>
+          <button type="button" class="edge-remove-close" data-action="close-edge" aria-label="Dismiss"><svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M4 4l8 8M12 4l-8 8" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></button>
+        </div>
+      </section>
+
+      <footer class="network-statusbar">
+        <span id="network-count">0 people · 0 relationships</span>
+        <span class="status-spacer"></span>
+        <span id="network-mode">ORBIT VIEW</span>
+        <span class="local-status">LOCAL ONLY</span>
+      </footer>
+
+      <nav class="mobile-nav" aria-label="Personal Network navigation">
+        <button type="button" class="mobile-nav-item active" data-mobile-view="network" aria-label="Open network">Network</button>
+        <button type="button" class="mobile-nav-item" data-mobile-view="profile" aria-label="Open selected profile">Profile</button>
+        <button type="button" class="mobile-nav-item capture" data-action="mobile-capture" aria-label="Capture a note or interaction">Capture</button>
+      </nav>
+      <input id="contact-file" type="file" accept=".csv,.vcf,text/csv,text/vcard,text/x-vcard" hidden>
+      <input id="calendar-file" type="file" accept=".ics,text/calendar" hidden>
+    </main>
+
+    <aside id="person-dossier" class="person-dossier" aria-label="Contact profile" hidden>
+      <button class="dossier-close" type="button" data-action="close-dossier" aria-label="Close dossier"><svg class="close-icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M4 4l8 8M12 4l-8 8" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></button>
+      <div class="section-kicker">CONTACT PROFILE</div>
+      <div class="dossier-header">
+        <div id="dossier-avatar" class="dossier-avatar" aria-hidden="true" hidden></div>
+        <div class="dossier-headings">
+          <div class="dossier-name-row"><h2 id="dossier-name">—</h2><span id="dossier-kind" class="kind-badge" hidden>Organisation</span><span id="dossier-ring" class="ring-badge" hidden></span></div>
+          <p id="dossier-role" class="dossier-role">Select a person to inspect their relationship context.</p>
+        </div>
+      </div>
+      <div class="section-kicker dossier-subkicker">CONTACT</div>
+      <div id="dossier-contact" class="dossier-contact"></div>
+      <div class="profile-tabs" role="tablist" aria-label="Contact profile sections">
+        <button type="button" class="profile-tab active" role="tab" aria-selected="true" aria-controls="profile-summary" data-profile-tab="summary">Summary</button>
+        <button type="button" class="profile-tab" role="tab" aria-selected="false" aria-controls="profile-context" data-profile-tab="context">Context</button>
+        <button type="button" class="profile-tab" role="tab" aria-selected="false" aria-controls="profile-timeline" data-profile-tab="timeline">Timeline</button>
+        <button type="button" class="profile-tab" role="tab" aria-selected="false" aria-controls="profile-evidence" data-profile-tab="evidence">Sources</button>
+      </div>
+      <section id="profile-summary" class="profile-panel" role="tabpanel" data-profile-panel="summary">
+        <div class="dossier-facts" id="dossier-facts"></div>
+        <div class="dossier-section next-move"><div class="section-kicker">NEXT BEST MOMENT</div><strong id="dossier-next-move">Keep the relationship in motion</strong><p id="dossier-next-move-detail">Orbit will surface a useful reason to reconnect as context and history accumulate.</p></div>
+        <div class="dossier-section profile-detail-section"><div class="section-kicker">ADDRESSES</div><div id="dossier-addresses" class="profile-list"></div><p id="dossier-addresses-empty" class="profile-empty" hidden>No address has been recorded.</p></div>
+        <div class="dossier-section profile-detail-section"><div class="section-kicker">DETAILS</div><div id="dossier-details" class="profile-list"></div><p id="dossier-details-empty" class="profile-empty" hidden>No additional details have been recorded.</p></div>
+        <div class="dossier-section"><div class="section-kicker">SOURCES</div><p id="dossier-evidence">No person selected.</p></div>
+        <div class="profile-actions"><button type="button" class="toolbar-button" data-action="edit-person">Edit profile</button><button type="button" class="toolbar-button" data-action="add-context">Add context</button><button type="button" class="toolbar-button" data-action="log-interaction">Log interaction</button><button type="button" class="toolbar-button danger" data-action="delete-contact">Delete</button></div>
+      </section>
+      <section id="profile-context" class="profile-panel" role="tabpanel" data-profile-panel="context" hidden>
+        <div class="section-kicker">CURRENT CONTEXT</div>
+        <div id="dossier-context" class="profile-list"></div>
+        <p id="dossier-context-empty" class="profile-empty" hidden>No current context has been recorded.</p>
+      </section>
+      <section id="profile-timeline" class="profile-panel" role="tabpanel" data-profile-panel="timeline" hidden>
+        <div class="section-kicker">HISTORY</div>
+        <div id="dossier-timeline" class="profile-timeline"></div>
+        <p id="dossier-timeline-empty" class="profile-empty" hidden>No dated interactions or changes yet.</p>
+      </section>
+      <section id="profile-evidence" class="profile-panel" role="tabpanel" data-profile-panel="evidence" hidden>
+        <div class="section-kicker">SOURCES</div>
+        <div id="dossier-evidence-list" class="profile-list"></div>
+        <p id="dossier-evidence-empty" class="profile-empty" hidden>No sources have been recorded yet.</p>
+      </section>
+    </aside>
+  </div>
+
+  <div id="person-modal" class="modal-layer" hidden>
+    <form class="person-modal" id="person-form" role="dialog" aria-modal="true" aria-labelledby="person-modal-title">
+      <div class="modal-heading">
+        <div>
+          <h2 id="person-modal-title">Add person</h2>
+        </div>
+        <button class="dossier-close" type="button" data-action="close-modal" aria-label="Close"><svg class="close-icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M4 4l8 8M12 4l-8 8" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></button>
+      </div>
+      <label>Name<input name="name" required maxlength="120" autocomplete="name" placeholder="e.g. Sarah Jones"></label>
+      <div class="form-grid">
+        <label>Preferred name<input name="preferredName" maxlength="80" autocomplete="nickname" placeholder="e.g. Sarah"></label>
+        <label>Role or context<input name="role" maxlength="160" placeholder="e.g. Insurance recruiter"></label>
+        <label>Organisation<input name="organisation" maxlength="160" autocomplete="organization" placeholder="e.g. Acme Group"></label>
+        <label>Location<input name="location" maxlength="120" autocomplete="address-level2" placeholder="e.g. Manchester"></label>
+        <label>Email<input name="email" type="email" maxlength="240" autocomplete="email" placeholder="name@example.com"></label>
+        <label>Phone<input name="phone" type="tel" maxlength="80" autocomplete="tel" placeholder="+44 …"></label>
+        <label>Other phone<input name="phoneOther" type="tel" maxlength="80" autocomplete="tel" placeholder="Optional second number"></label>
+        <label>WhatsApp<input name="whatsapp" maxlength="160" autocomplete="off" placeholder="Number or profile URL"></label>
+        <label>Signal<input name="signal" maxlength="160" autocomplete="off" placeholder="Number or username"></label>
+        <label>Instagram<input name="instagram" maxlength="160" autocomplete="off" placeholder="@username or profile URL"></label>
+        <label>Facebook<input name="facebook" maxlength="240" autocomplete="off" placeholder="Profile URL or name"></label>
+        <label>Website<input name="website" type="url" maxlength="240" autocomplete="url" placeholder="https://…"></label>
+        <label>X / Twitter<input name="x" maxlength="240" autocomplete="off" placeholder="@username or profile URL"></label>
+      </div>
+      <label>Other social profiles<textarea name="socialProfiles" maxlength="1200" rows="3" placeholder="One per line, e.g. TikTok: @username&#10;Linked profile: https://…"></textarea></label>
+      <div class="form-grid">
+        <label>Home address<textarea name="address" maxlength="500" rows="2" autocomplete="street-address" placeholder="Address or area"></textarea></label>
+        <label>Work address<textarea name="workAddress" maxlength="500" rows="2" autocomplete="street-address" placeholder="Work address or area"></textarea></label>
+        <label>Birthday<input name="birthday" type="date" autocomplete="bday"></label>
+        <label>Interests<input name="interests" maxlength="500" placeholder="e.g. cycling, food, design"></label>
+      </div>
+      <label>How you know them<input name="relationship" maxlength="160" placeholder="e.g. Former colleague, running club"></label>
+      <label>Private note<textarea name="note" maxlength="1000" rows="3" placeholder="What is useful to remember about this person?"></textarea></label>
+      <label>Relationship strength <span class="field-value" id="strength-value">50</span><input name="strength" id="strength-input" type="range" min="0" max="100" value="50"></label>
+      <div class="modal-actions">
+        <button class="toolbar-button" type="button" data-action="close-modal">Cancel</button>
+        <button class="toolbar-button primary" type="submit"><span id="person-submit-label">Add to network</span></button>
+      </div>
+    </form>
+  </div>
+
+  <div id="vault-modal" class="modal-layer" hidden>
+    <section class="person-modal vault-modal" role="dialog" aria-modal="true" aria-labelledby="vault-modal-title" tabindex="-1">
+      <div class="modal-heading">
+        <div><div class="section-kicker">PORTABLE WORKSPACE</div><h2 id="vault-modal-title">Orbit vault</h2></div>
+        <button class="dossier-close" type="button" data-action="close-vault" aria-label="Close"><svg class="close-icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M4 4l8 8M12 4l-8 8" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></button>
+      </div>
+      <p class="vault-intro">Your people, links, context and history stay in an ordinary JSON file you own. Export it for backup or move it to another Orbit device.</p>
+      <div class="vault-actions">
+        <button class="toolbar-button primary" type="button" data-action="export-vault">Export vault</button>
+        <label class="toolbar-button vault-file-button">Import vault<input id="vault-file" type="file" accept="application/json,.json" hidden></label>
+      </div>
+      <div id="vault-status" class="vault-status" role="status" aria-live="polite">Ready. Imports merge into this local workspace.</div>
+      <p class="form-note">Orbit never uploads this file. Import is additive, so existing records are preserved.</p>
+    </section>
+  </div>
+
+  <div id="import-modal" class="modal-layer" hidden>
+    <section class="person-modal import-modal" role="dialog" aria-modal="true" aria-labelledby="import-modal-title" tabindex="-1">
+      <div class="modal-heading">
+        <div><div class="section-kicker">REVIEW BEFORE MERGE</div><h2 id="import-modal-title">Import contacts</h2></div>
+        <button class="dossier-close" type="button" data-action="close-import" aria-label="Close"><svg class="close-icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M4 4l8 8M12 4l-8 8" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></button>
+      </div>
+      <p id="import-summary" class="vault-intro">Choose the contacts to add to Orbit.</p>
+      <div class="import-toolbar"><label class="import-select-all"><input id="import-select-all" type="checkbox" checked> Select all</label><span id="import-selected-count" class="import-count"></span></div>
+      <div id="import-preview" class="import-preview" role="list" aria-label="Contacts ready to import"></div>
+      <div id="import-empty" class="profile-empty" hidden>No usable contacts were found in that file.</div>
+      <div class="modal-actions"><button class="toolbar-button" type="button" data-action="close-import">Cancel</button><button class="toolbar-button primary" type="button" data-action="merge-import">Merge selected</button></div>
+    </section>
+  </div>
+
+  <div id="record-modal" class="modal-layer" hidden>
+    <form class="person-modal record-modal" id="record-form" role="dialog" aria-modal="true" aria-labelledby="record-modal-title">
+      <div class="modal-heading">
+        <div><h2 id="record-modal-title">Add context</h2></div>
+        <button class="dossier-close" type="button" data-action="close-record" aria-label="Close"><svg class="close-icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M4 4l8 8M12 4l-8 8" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></button>
+      </div>
+      <input type="hidden" name="kind" value="fact">
+      <label>Title<input name="title" required maxlength="120" placeholder="e.g. Current project"></label>
+      <label id="record-value-label">Context or note<textarea name="value" required maxlength="1000" rows="4" placeholder="What should this profile remember?"></textarea></label>
+      <label>Date<input name="date" type="date"></label>
+      <div class="modal-actions"><button class="toolbar-button" type="button" data-action="close-record">Cancel</button><button class="toolbar-button primary" type="submit">Save record</button></div>
+    </form>
+  </div>
+
+  <div id="account-modal" class="modal-layer" hidden>
+    <form id="account-form" class="person-modal account-modal" role="dialog" aria-modal="true" aria-labelledby="account-modal-title">
+      <div class="modal-heading">
+        <div><div class="section-kicker">MY PROFILE</div><h2 id="account-modal-title">Your Orbit profile</h2></div>
+        <button id="account-modal-close" class="dossier-close" type="button" data-action="close-account" aria-label="Close"><svg class="close-icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M4 4l8 8M12 4l-8 8" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></button>
+      </div>
+      <p class="account-email"><span class="section-kicker">ACCOUNT EMAIL</span><strong id="account-modal-email">—</strong></p>
+      <label>Your name<input name="name" required maxlength="120" autocomplete="name"></label>
+      <div class="form-grid">
+        <label>Phone<input name="phone" type="tel" maxlength="80" autocomplete="tel" placeholder="+44 …"></label>
+        <label>Other phone<input name="phoneOther" type="tel" maxlength="80" autocomplete="tel" placeholder="Optional"></label>
+        <label>WhatsApp<input name="whatsapp" maxlength="160" placeholder="Number or profile URL"></label>
+        <label>Signal<input name="signal" maxlength="160" placeholder="Number or username"></label>
+        <label>Instagram<input name="instagram" maxlength="160" placeholder="@username or profile URL"></label>
+        <label>Facebook<input name="facebook" maxlength="240" placeholder="Profile URL or name"></label>
+        <label>Website<input name="website" type="url" maxlength="240" placeholder="https://…"></label>
+        <label>X / Twitter<input name="x" maxlength="240" placeholder="@username or profile URL"></label>
+      </div>
+      <label>Home address<textarea name="address" maxlength="500" rows="2" autocomplete="street-address" placeholder="Address or area"></textarea></label>
+      <div class="form-grid">
+        <label>Interests<input name="interests" maxlength="500" placeholder="e.g. cycling, food, design"></label>
+        <label>Useful details<input name="note" maxlength="1000" placeholder="What Orbit should remember about you"></label>
+      </div>
+      <p id="account-status" class="auth-status" role="status" aria-live="polite"></p>
+      <div class="modal-actions"><button class="toolbar-button" type="button" data-action="close-account">Cancel</button><button class="toolbar-button" type="button" data-action="sign-out">Sign out</button><button class="toolbar-button primary" type="submit">Save profile</button></div>
+    </form>
+  </div>
+
+  <div id="connections-modal" class="modal-layer" hidden>
+    <section class="person-modal connections-modal" role="dialog" aria-modal="true" aria-labelledby="connections-modal-title">
+      <div class="modal-heading">
+        <div><div class="section-kicker">ACCOUNT LINKS</div><h2 id="connections-modal-title">Connected accounts</h2></div>
+        <button class="dossier-close" type="button" data-action="close-connections" aria-label="Close"><svg class="close-icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M4 4l8 8M12 4l-8 8" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></button>
+      </div>
+      <p class="connections-intro">Give Orbit access one source at a time. Passwords never enter Orbit, and nothing is merged into your network without review.</p>
+      <div class="connection-list" role="list">
+        <article class="connection-card" data-provider-card="google" role="listitem">
+          <div class="connection-card-top"><div><span class="connection-provider">GOOGLE</span><h3>Google Contacts</h3></div><span class="connection-status" data-connection-status="google">NOT CONNECTED</span></div>
+          <p>Bring people and organisations into Orbit’s review queue. Automated addresses such as noreply and notification accounts are filtered first.</p>
+          <div class="connection-card-bottom"><small data-connection-meta="google">Needs OAuth setup</small><button class="toolbar-button primary" type="button" data-connect-provider="google">Connect Google</button></div>
+        </article>
+        <article class="connection-card" data-provider-card="facebook" role="listitem">
+          <div class="connection-card-top"><div><span class="connection-provider">META</span><h3>Facebook</h3></div><span class="connection-status" data-connection-status="facebook">NOT CONNECTED</span></div>
+          <p>Link an allowed Facebook profile identity. Meta decides which profile data is available to the app.</p>
+          <div class="connection-card-bottom"><small data-connection-meta="facebook">Needs Meta app setup</small><button class="toolbar-button" type="button" data-connect-provider="facebook">Set up Facebook</button></div>
+        </article>
+        <article class="connection-card" data-provider-card="instagram" role="listitem">
+          <div class="connection-card-top"><div><span class="connection-provider">META</span><h3>Instagram</h3></div><span class="connection-status" data-connection-status="instagram">NOT CONNECTED</span></div>
+          <p>Link an eligible professional Instagram account through Meta’s approved API flow.</p>
+          <div class="connection-card-bottom"><small data-connection-meta="instagram">Needs Meta app setup</small><button class="toolbar-button" type="button" data-connect-provider="instagram">Set up Instagram</button></div>
+        </article>
+        <article class="connection-card" data-provider-card="apple" role="listitem">
+          <div class="connection-card-top"><div><span class="connection-provider">APPLE</span><h3>Sign in with Apple</h3></div><span class="connection-status" data-connection-status="apple">NOT CONNECTED</span></div>
+          <p>Reserved for the native iPhone app, so Orbit can offer a privacy-forward account connection.</p>
+          <div class="connection-card-bottom"><small data-connection-meta="apple">Native app setup later</small><button class="toolbar-button" type="button" data-connect-provider="apple">View setup</button></div>
+        </article>
+      </div>
+      <p id="connections-status" class="auth-status" role="status" aria-live="polite"></p>
+      <p class="form-note">Local imports remain available from the Import button while provider connections are being configured. Imported records always pass through review first.</p>
+      <div class="modal-actions"><button class="toolbar-button" type="button" data-action="close-connections">Done</button></div>
+    </section>
+  </div>
+
+  <script>window.ORBIT_SURFACE = "personal";</script>
+  <script src="../_shared/core/case-file.js"></script>
+  <script src="../_shared/core/orbit-case.js"></script>
+  <script src="../_shared/lib/vis-network.min.js"></script>
+  <script src="vendor/supabase.js?v=20260822-supabase-2"></script>
+  <script src="supabase-config.js?v=20260822-supabase-config"></script>
+  <script src="auth.js?v=20260822-local-auth"></script>
+  <script src="connections.js?v=20260822-connections-pass"></script>
+  <script src="auth-cloud.js?v=20260822-cloud-auth"></script>
+  <script src="classify.js?v=20260822-classify-pass"></script>
+  <script src="matching.js?v=20260822-matching-pass"></script>
+  <script src="icons.js?v=20260822-icons-pass"></script>
+  <script src="google-contacts.js?v=20260822-google-contacts-2"></script>
+  <script src="domain.js?v=20260822-contact-profile-pass"></script>
+  <script src="importers.js?v=20260822-classify-pass"></script>
+  <script src="vault.js?v=20260822-contact-profile-pass"></script>
+  <script src="profile.js?v=20260822-classify-pass"></script>
+  <script src="app.js?v=20260822-classify-pass"></script>
+  <script src="panelresize.js?v=20260822-panelresize"></script>
+  <script>
+    if (location.protocol === "http:" || location.protocol === "https:") {
+      if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js?v=20260822-connections-pass").catch(function () {});
+    }
+  </script>
+</body>
+</html>

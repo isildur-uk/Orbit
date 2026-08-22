@@ -1,0 +1,19 @@
+{
+  "name": "orbit-personal-network",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node scripts/test-import-pipeline.mjs && node scripts/test-boot-smoke.mjs",
+    "test:import": "node scripts/test-import-pipeline.mjs",
+    "test:boot": "node scripts/test-boot-smoke.mjs",
+    "build": "node standalone/build-personal-network.mjs",
+    "preview": "node scripts/phone-preview-server.mjs"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.112.3"
+  },
+  "devDependencies": {
+    "jsdom": "^24.0.0",
+    "puppeteer-core": "^23.0.0"
+  }
+}
