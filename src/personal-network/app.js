@@ -613,6 +613,7 @@
         window.__ORBIT_TRASH__ = function () { return trashRead().map(function (r) { return { tid: r.tid, label: r.label, links: r.links.length }; }); };
         window.__ORBIT_RESTORE__ = function (tid) { trashRestore(tid); return trashCount(); };
         window.__ORBIT_PEOPLE__ = function () { return state.snapshot ? state.snapshot.entities.filter(D.isPerson).length : 0; };
+        window.__ORBIT_SELECTED__ = function () { return state.selectedId; };
         window.__ORBIT_NODEAT__ = function (id) { try { var d = state.network.canvasToDOM(state.network.getPositions([id])[id]); return state.network.getNodeAt(d); } catch (e) { return "err:" + e.message; } };
       }
     } else {
@@ -1265,17 +1266,30 @@
     if (badge) { badge.textContent = n ? String(n) : ""; badge.hidden = !n; }
     if (btn) btn.setAttribute("title", n ? "Recycle bin (" + n + ")" : "Recycle bin (empty)");
   }
+  /* Where the ←/→ walk would land next once this person is gone; "" when the
+   * network would be left with nobody. */
+  function nextPersonAfter(id) {
+    var all = allPeopleIds(), cur = all.indexOf(String(id));
+    var rest = all.filter(function (p) { return p !== String(id); });
+    if (!rest.length) return "";
+    return rest[cur < 0 ? 0 : cur % rest.length];
+  }
   function removeContact(id) {
     if (!state.store) return;
     id = String(id);
     var record = captureForTrash(id);
+    /* Deleting the profile you are reading moves on to the next contact rather
+     * than dropping you back to an empty panel. */
+    var successor = id === state.selectedId ? nextPersonAfter(id) : "";
     pushUndo();
-    if (id === state.selectedId) closeDossier();
+    if (successor) { state.selectedId = successor; state.cycleAnchor = successor; state.cycleIndex = -1; }
+    else if (id === state.selectedId) closeDossier();
     delete state.pinned[id]; delete state.positions[id]; delete state.ringAngle[id];
     if (state.store.removeEntity) state.store.removeEntity(id);
     else if (state.store.withdraw) state.store.withdraw("ent:" + id);
     if (record) { var list = trashRead(); list.unshift(record); trashWrite(list); }
     render();
+    if (successor) openDossier(successor);
     updateTrashButton();
     setText("#sync-status", record ? "MOVED TO RECYCLE BIN" : "CONTACT DELETED");
   }
@@ -1345,6 +1359,22 @@
   }
   function visibleModal() {
     return $$(".modal-layer").filter(function (layer) { return !layer.hidden; })[0] || null;
+  }
+  /* Clicking the dimmed backdrop dismisses a modal, so the X is never the only
+   * way out. Press and release must both land on the backdrop, so a text drag
+   * that finishes outside the panel doesn't close it. */
+  function wireBackdropClose() {
+    var closers = {
+      "person-modal": closeModal, "vault-modal": closeVault, "import-modal": closeImport,
+      "record-modal": closeRecord, "account-modal": closeAccountModal,
+      "connections-modal": closeConnections, "recycle-modal": closeRecycleBin
+    };
+    $$(".modal-layer").forEach(function (layer) {
+      var close = closers[layer.id]; if (!close) return;
+      var armed = false;
+      layer.addEventListener("pointerdown", function (event) { armed = event.target === layer; });
+      layer.addEventListener("click", function (event) { var go = armed && event.target === layer; armed = false; if (go) close(); });
+    });
   }
   function trapModalTab(event) {
     var layer = visibleModal();
@@ -1682,6 +1712,7 @@
     var emptyBin = $('[data-action="empty-bin"]'); if (emptyBin) emptyBin.addEventListener("click", trashClear);
     var recycleList = $("#recycle-list"); if (recycleList) recycleList.addEventListener("click", function (event) { var t = event.target.closest("[data-restore],[data-purge]"); if (!t) return; if (t.hasAttribute("data-restore")) trashRestore(t.getAttribute("data-restore")); else trashPurge(t.getAttribute("data-purge")); });
     updateTrashButton();
+    wireBackdropClose();
     state.layout = loadLayout();
     setText("#layout-tool-label", layoutMeta(state.layout).label);
     applyBgTheme(loadBgTheme());
