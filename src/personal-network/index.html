@@ -113,7 +113,7 @@
         <div class="toolbar-actions">
           <label class="search-control">
             <span class="visually-hidden">Search people</span>
-            <input id="network-search" type="search" placeholder="Search people…" autocomplete="off">
+            <input id="network-search" type="search" placeholder="Search — or tag:cycling, org:acme, has:phone…" autocomplete="off">
           </label>
           <button class="toolbar-button" type="button" data-action="import-contacts">Import</button>
           <button class="toolbar-button" type="button" data-action="import-calendar">Calendar</button>
@@ -172,6 +172,12 @@
           </button>
           <button type="button" class="graph-tool icon-only" data-action="find-duplicates" title="Find duplicate contacts" aria-label="Find duplicate contacts">
             <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><circle cx="6.4" cy="6.4" r="4" fill="none" stroke="currentColor" stroke-width="1.2"/><circle cx="9.6" cy="9.6" r="4" fill="none" stroke="currentColor" stroke-width="1.2"/></svg>
+          </button>
+          <button type="button" class="graph-tool icon-only" data-action="insights" title="What the shape of the network says" aria-label="Network insights">
+            <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M2 13.5V9M6 13.5V4.5M10 13.5V7M14 13.5V2.5" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round"/></svg>
+          </button>
+          <button type="button" class="graph-tool icon-only" data-action="history" title="Everything that has happened" aria-label="Network timeline">
+            <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M8 4.4V8l2.4 1.6" stroke="currentColor" stroke-width="1.3" fill="none" stroke-linecap="round"/></svg>
           </button>
           <button type="button" class="graph-tool icon-only" data-action="shortcuts" title="Keyboard shortcuts and gestures (?)" aria-label="Keyboard shortcuts">
             <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><rect x="1.2" y="4" width="13.6" height="9" rx="1.6" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M4 7h.01M6.4 7h.01M8.8 7h.01M11.2 7h.01M4.6 10h6.8" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
@@ -237,6 +243,7 @@
       </div>
       <section id="profile-summary" class="profile-panel" role="tabpanel" data-profile-panel="summary">
         <div class="dossier-facts" id="dossier-facts"></div>
+        <div id="dossier-bridge" class="dossier-flag" hidden></div>
         <div class="dossier-section next-move"><div class="section-kicker">NEXT BEST MOMENT</div><strong id="dossier-next-move">Keep the relationship in motion</strong><p id="dossier-next-move-detail">Orbit will surface a useful reason to reconnect as context and history accumulate.</p></div>
         <div class="dossier-section profile-detail-section"><div class="section-kicker">ADDRESSES</div><div id="dossier-addresses" class="profile-list"></div><p id="dossier-addresses-empty" class="profile-empty" hidden>No address has been recorded.</p></div>
         <div class="dossier-section profile-detail-section"><div class="section-kicker">DETAILS</div><div id="dossier-details" class="profile-list"></div><p id="dossier-details-empty" class="profile-empty" hidden>No additional details have been recorded.</p></div>
@@ -420,6 +427,41 @@
     </section>
   </div>
 
+  <div id="insights-modal" class="modal-layer" hidden>
+    <section class="person-modal insights-modal" role="dialog" aria-modal="true" aria-labelledby="insights-modal-title" tabindex="-1">
+      <div class="modal-heading">
+        <h2 id="insights-modal-title">What the shape says</h2>
+        <button class="dossier-close" type="button" data-action="close-insights" aria-label="Close"><svg class="close-icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M4 4l8 8M12 4l-8 8" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></button>
+      </div>
+      <div id="insights-body" class="insights-body"></div>
+      <div class="modal-actions"><button class="toolbar-button" type="button" data-action="write-brief">Write a brief</button><button class="toolbar-button" type="button" data-action="close-insights">Done</button></div>
+    </section>
+  </div>
+
+  <div id="suggest-modal" class="modal-layer" hidden>
+    <section class="person-modal dupes-modal" role="dialog" aria-modal="true" aria-labelledby="suggest-modal-title" tabindex="-1">
+      <div class="modal-heading">
+        <h2 id="suggest-modal-title">Relationships the evidence implies</h2>
+        <button class="dossier-close" type="button" data-action="close-suggest" aria-label="Close"><svg class="close-icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M4 4l8 8M12 4l-8 8" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></button>
+      </div>
+      <p id="suggest-summary" class="form-note">Looking…</p>
+      <div id="suggest-list" class="dupes-list"></div>
+      <div class="modal-actions"><button class="toolbar-button" type="button" data-action="reset-suggest">Restore dismissed</button><button class="toolbar-button" type="button" data-action="close-suggest">Done</button></div>
+    </section>
+  </div>
+
+  <div id="history-modal" class="modal-layer" hidden>
+    <section class="person-modal history-modal" role="dialog" aria-modal="true" aria-labelledby="history-modal-title" tabindex="-1">
+      <div class="modal-heading">
+        <h2 id="history-modal-title">Everything that has happened</h2>
+        <button class="dossier-close" type="button" data-action="close-history" aria-label="Close"><svg class="close-icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M4 4l8 8M12 4l-8 8" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></button>
+      </div>
+      <p id="history-summary" class="form-note"></p>
+      <div id="history-list" class="history-list"></div>
+      <div class="modal-actions"><button class="toolbar-button" type="button" data-action="close-history">Done</button></div>
+    </section>
+  </div>
+
   <div id="shortcuts-modal" class="modal-layer" hidden>
     <section class="person-modal shortcuts-modal" role="dialog" aria-modal="true" aria-labelledby="shortcuts-modal-title" tabindex="-1">
       <div class="modal-heading">
@@ -478,6 +520,10 @@
   <script src="icons.js?v=20260822-icons-pass"></script>
   <script src="tags.js?v=20260823-tags"></script>
   <script src="mbox.js?v=20260823-mbox"></script>
+  <script src="graph.js?v=20260823-graph"></script>
+  <script src="query.js?v=20260823-query"></script>
+  <script src="evidence.js?v=20260823-evidence"></script>
+  <script src="brief.js?v=20260823-brief"></script>
   <script src="layouts.js?v=20260823-layouts"></script>
   <script src="google-contacts.js?v=20260822-google-contacts-2"></script>
   <script src="domain.js?v=20260822-contact-profile-pass"></script>

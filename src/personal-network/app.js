@@ -6,11 +6,12 @@
   var P = window.OrbitNetworkProfile;
   var A = window.OrbitCloudAuth && window.OrbitCloudAuth.configured ? window.OrbitCloudAuth : window.OrbitLocalAuth;
   var C = window.OrbitConnections;
-  var T = window.OrbitTags;
-  var state = { tagFilter: {}, kindFilter: {}, expanded: {}, coldMode: false, path: null, store: null, ready: null, network: null, snapshot: null, selectedId: "", editingId: "", query: "", opportunityMode: false, profileTab: "summary", mobileView: "network", importDraft: null, workspaceStarted: false, positions: {}, _nodeCount: -1, selectedEdge: null, linkFrom: null, pendingPlace: null, pinned: {}, undoStack: [], redoStack: [], photoLoaded: {}, photoPending: {}, emptyDismissed: false, shiftHeld: false, selectedIds: {}, layout: "orbit", ringAngle: {}, cycleAnchor: "", cycleIndex: -1 };
+  var T = window.OrbitTags, GR = window.OrbitGraph, QY = window.OrbitQuery, EV = window.OrbitEvidence, BR = window.OrbitBrief;
+  var state = { tagFilter: {}, kindFilter: {}, expanded: {}, groupFilter: "", shape: null, coldMode: false, path: null, store: null, ready: null, network: null, snapshot: null, selectedId: "", editingId: "", query: "", opportunityMode: false, profileTab: "summary", mobileView: "network", importDraft: null, workspaceStarted: false, positions: {}, _nodeCount: -1, selectedEdge: null, linkFrom: null, pendingPlace: null, pinned: {}, undoStack: [], redoStack: [], photoLoaded: {}, photoPending: {}, emptyDismissed: false, shiftHeld: false, selectedIds: {}, layout: "orbit", ringAngle: {}, cycleAnchor: "", cycleIndex: -1 };
   var $ = function (selector) { return document.querySelector(selector); };
   var $$ = function (selector) { return Array.prototype.slice.call(document.querySelectorAll(selector)); };
 
+  function lower(value) { return String(value == null ? "" : value).toLowerCase(); }
   function esc(value) {
     return String(value == null ? "" : value).replace(/[&<>"']/g, function (ch) {
       return ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch];
@@ -267,6 +268,39 @@
     var label = contactKindLabel(item.kind), value = item.value, href = contactHref(item), content = '<strong>' + esc(label) + '</strong> ' + esc(value);
     return href ? '<a class="contact-chip" href="' + esc(href) + '"' + (/^https?:\/\//i.test(href) ? ' target="_blank" rel="noreferrer"' : '') + '>' + content + '</a>' : '<span class="contact-chip">' + content + '</span>';
   }
+  /* Why the health score is the number it is, in the terms that produced it. */
+  function showScoreReason(x, y) {
+    var person = personById(state.selectedId); if (!person || !EV || !state.snapshot) return;
+    var a = D.attrs(person);
+    var degrees = D.degreeMap(state.snapshot.links);
+    var last = D.lastInteractionByPerson(state.snapshot.entities, state.snapshot.links)[String(person.id)];
+    var shape = shapeOf(), group = shape.byPerson[String(person.id)];
+    var follow = "";
+    state.snapshot.links.forEach(function (link) {
+      if (!isFollowLink(link)) return;
+      var ends = [normaliseId(link.from), normaliseId(link.to)];
+      if (ends.indexOf(String(person.id)) === -1) return;
+      follow = igFollowLabel(link);
+    });
+    var breakdown = EV.scoreBreakdown(D.stableScore(person, state.snapshot.links, degrees), {
+      explicitStrength: a.strength, degree: degrees[String(person.id)] || 0,
+      emailTotal: a.emailTotal, lastAt: last || Date.parse(a.emailLastAt || "") || 0, now: Date.now(),
+      follow: follow, sharedGroups: group ? group.size - 1 : 0
+    });
+    closeCtxMenu(); closeIconPicker();
+    setTimeout(function () {
+      var pop = document.createElement("div");
+      pop.className = "ctx-menu score-why";
+      pop.setAttribute("role", "note");
+      pop.innerHTML = breakdown.parts.map(function (part) {
+        return '<div class="ctx-item"><b>' + esc(part.label) + "</b><span>" + esc(part.detail) + "</span></div>";
+      }).join("");
+      document.body.appendChild(pop); iconPickerEl = pop;
+      var mw = pop.offsetWidth, mh = pop.offsetHeight;
+      pop.style.left = Math.min(x, window.innerWidth - mw - 8) + "px";
+      pop.style.top = Math.min(y, window.innerHeight - mh - 8) + "px";
+    }, 0);
+  }
   function nextMoment(profile) {
     var name = profile.header.preferredName || profile.header.name;
     if (profile.opportunities && profile.opportunities.length) return { title: profile.opportunities[0].title, detail: profile.opportunities[0].summary || "An opportunity is linked to this relationship." };
@@ -321,7 +355,17 @@
       facts.push(["Shared contacts", formatCount(profile.relationship.sharedContacts)]);
       facts.push(["Open promises", formatCount(profile.promises.length)]);
     }
-    $("#dossier-facts").innerHTML = facts.map(function (row) { return '<div class="dossier-fact"><span class="dossier-fact-label">' + esc(row[0]) + '</span><span class="dossier-fact-value">' + esc(row[1]) + '</span></div>'; }).join("");
+    /* Someone who holds two parts of the network together should be told so. */
+    var bridgeFlag = $("#dossier-bridge"), splits = shapeOf().bridgeIds[String(profile.id)];
+    if (bridgeFlag) {
+      bridgeFlag.hidden = !splits;
+      if (splits) bridgeFlag.textContent = "Without " + (profile.header.preferredName || profile.header.name) +
+        ", your network falls into " + splits + " separate pieces. They are the only route between them.";
+    }
+    $("#dossier-facts").innerHTML = facts.map(function (row, index) {
+      var why = index === 0 ? ' data-why-score="1" class="dossier-fact clickable" title="Why this number?"' : ' class="dossier-fact"';
+      return "<div" + why + '><span class="dossier-fact-label">' + esc(row[0]) + '</span><span class="dossier-fact-value">' + esc(row[1]) + "</span></div>";
+    }).join("");
     var moment = nextMoment(profile);
     setText("#dossier-next-move", moment.title);
     setText("#dossier-next-move-detail", moment.detail);
@@ -344,10 +388,19 @@
       return '<div class="timeline-item"><div class="timeline-date">' + esc(formatDate(item.date)) + '</div><div class="timeline-title">' + title + '</div>' + (item.summary ? '<div class="timeline-summary">' + esc(item.summary) + '</div>' : '') + '<div class="timeline-kind">' + esc(item.kind) + (item.sourceType && item.sourceType !== "unknown" ? " · " + esc(item.sourceType) : "") + '</div></div>';
     }).join("");
     $("#dossier-timeline-empty").hidden = (profile.history || []).length > 0;
-    $("#dossier-evidence-list").innerHTML = (profile.evidence || []).map(function (item) {
+    /* Every value Orbit holds, with the source that put it there. This is the
+     * question a network tool should always be able to answer. */
+    var provenance = EV ? EV.provenance(profile.person) : [];
+    var provenanceHtml = provenance.map(function (row) {
+      return '<div class="evidence-row"><div class="evidence-key">' + esc(row.label) + "</div>" +
+        '<div class="evidence-value">' + esc(row.value) + "</div>" +
+        '<div class="evidence-where">' + esc(row.source) + (row.at ? " · " + esc(formatDate(row.at)) : "") +
+        (row.count > 1 ? " · seen " + row.count + " times" : "") + "</div></div>";
+    }).join("");
+    $("#dossier-evidence-list").innerHTML = provenanceHtml + (profile.evidence || []).map(function (item) {
       return profileItem(item.label, "", item.kind, sourceLine(item));
     }).join("");
-    $("#dossier-evidence-empty").hidden = profile.evidence.length > 0;
+    $("#dossier-evidence-empty").hidden = profile.evidence.length > 0 || provenance.length > 0;
     setProfileTab(state.profileTab);
   }
 
@@ -511,13 +564,32 @@
     });
     ctx.restore();
   }
+  /* The record a query is asked about. */
+  function queryRecord(person) {
+    var a = D.attrs(person), shape = state.query.trim() ? shapeOf() : null;
+    var group = shape ? shape.byPerson[String(person.id)] : null;
+    var has = [];
+    [["email", a.email], ["phone", a.phone || a.phoneOther], ["whatsapp", a.whatsapp], ["signal", a.signal],
+     ["instagram", a.instagram], ["facebook", a.facebook], ["website", a.website], ["photo", a.photo],
+     ["address", a.address || a.workAddress], ["note", a.note], ["birthday", a.birthday], ["tag", (T ? T.parse(a.tags).length : 0) ? "y" : ""]]
+      .forEach(function (pair) { if (String(pair[1] || "").trim()) has.push(pair[0]); });
+    return {
+      name: person.label, tags: T ? T.parse(a.tags) : [], organisation: a.organisation || "",
+      emails: String(a.email || "").split(/[,;\s]+/).filter(Boolean),
+      kind: a.entityKind || "individual", has: has, groups: group ? [group.name] : [],
+      lastAt: Date.parse(a.emailLastAt || "") || 0, emailTotal: Number(a.emailTotal || 0),
+      haystack: [person.label, a.preferredName, a.role, a.organisation, a.location, a.email, a.phone, a.phoneOther,
+        a.whatsapp, a.instagram, a.facebook, a.website, a.address, a.workAddress, a.interests, a.note,
+        (T ? T.parse(a.tags).join(" ") : "")].join(" ").toLowerCase()
+    };
+  }
   function currentNodeIds(snapshot) {
-    var people = snapshot.entities.filter(D.isPerson);
-    var q = state.query.trim().toLowerCase();
+    /* Your own record is always on the chart; it is not one of the results. */
+    var people = snapshot.entities.filter(function (e) { return D.isPerson(e) && !isMe(e.id); });
+    var q = state.query.trim();
+    var terms = q && QY ? QY.parse(q) : null;
     return people.filter(function (person) {
-      var a = D.attrs(person);
-      var haystack = [person.label, a.role, a.company, a.location, a.email, a.phone, a.phoneOther, a.whatsapp, a.instagram, a.facebook, a.website, a.address, a.workAddress, a.interests, (T ? T.parse(a.tags).join(" ") : "")].join(" ").toLowerCase();
-      var matchesQuery = !q || haystack.indexOf(q) !== -1;
+      var matchesQuery = !terms || !terms.length || QY.matches(queryRecord(person), terms);
       var matchesOpportunity = !state.opportunityMode || snapshot.links.some(function (link) {
         return D.hasOpportunity(link) && (String(link.from) === String(person.id) || String(link.to) === String(person.id));
       }) || D.isOpportunityEntity(person);
@@ -598,7 +670,7 @@
     /* When something is selected, everything else steps back. With a hundred
      * people on screen a slightly thicker border is not enough to find one. */
     var hasSelection = !!state.selectedId || Object.keys(state.selectedIds).length > 0;
-    var filtering = activeTags().length > 0 || activeKinds().length > 0;
+    var filtering = activeTags().length > 0 || activeKinds().length > 0 || !!state.groupFilter;
     var cold = coldSet(), coldActive = state.coldMode;
     var pathSet = state.path ? state.path.set : null;
     var narrowed = state.query.trim() || hasSelection || filtering || coldActive || !!pathSet;
@@ -737,6 +809,11 @@
       else if (pointsTo === from) arrows = { from: { enabled: true, scaleFactor: 0.6 } };
       return { id: String(link.id), from: from, to: to, label: showLabel ? (relType || undefined) : undefined, arrows: arrows, width: onPath ? 3 : (onSelection && hasSelection ? 2.2 : (opportunity ? 2.6 : (touchesMe ? 1.3 : 1.1))), dashes: false, color: { color: onPath ? "rgba(255,255,255,.92)" : colour, highlight: opportunity ? "#da291c" : "#ffffff", hover: "#ffffff", opacity: onSelection ? 1 : 0.18 }, font: relType ? { color: "#cfcfcf", size: 10, face: "Inter Var", strokeWidth: 4, strokeColor: "#181818", align: "middle" } : undefined, smooth: dense ? false : { enabled: true, type: "continuous", roundness: .28 }, hidden: false };
     });
+    /* Who else holds each identifier, so an expansion can show the overlap. */
+    var sharedHolders = Object.create(null);
+    if (Object.keys(state.expanded).length) {
+      shapeOf().shared.forEach(function (row) { sharedHolders[lower(row.value)] = row.holders; });
+    }
     /* Each expanded person fans their parts out around them. */
     Object.keys(state.expanded).forEach(function (personId) {
       if (!byId[personId] && personId !== D.ME_ID) { delete state.expanded[personId]; return; }
@@ -763,6 +840,19 @@
           id: nodeId + DETAIL_MARK + "edge", from: personId, to: nodeId, label: undefined,
           width: 1, dashes: [2, 3], arrows: undefined, smooth: false,
           color: { color: "rgba(255,255,255,.22)", highlight: "#ffffff", hover: "#ffffff", opacity: 1 }
+        });
+        /* An identifier somebody else also holds is the interesting kind: draw
+         * the line to them too, and mark the node so it reads differently. */
+        (sharedHolders[lower(part.value)] || []).forEach(function (otherId) {
+          if (otherId === personId || !byId[otherId]) return;
+          var node = nodes[nodes.length - 1];
+          node.color.border = "#da291c";
+          node.borderWidth = 2;
+          edges.push({
+            id: nodeId + DETAIL_MARK + "shared" + DETAIL_MARK + otherId, from: nodeId, to: otherId,
+            label: undefined, width: 1.4, dashes: false, arrows: undefined, smooth: false,
+            color: { color: "rgba(218,41,28,.55)", highlight: "#da291c", hover: "#da291c", opacity: 1 }
+          });
         });
       });
     });
@@ -954,6 +1044,22 @@
         };
         window.__ORBIT_HANDLE__ = function (id) { var p = personById(id); return p ? String(D.attrs(p).instagram || "") : null; };
         window.__ORBIT_BYHANDLE__ = function (handle) { var p = personByHandle(igHandle(handle)); return p ? String(p.id) : null; };
+        window.__ORBIT_SHAPE__ = function () {
+          var shape = shapeOf();
+          return {
+            groups: shape.groups.map(function (g) { return { name: g.name, size: g.size, members: g.members.map(personLabel).sort() }; }),
+            bridges: shape.bridges.map(function (b) { return { name: b.name, splitsInto: b.splitsInto }; }),
+            shared: shape.shared.map(function (r) { return { value: r.value, who: r.who.sort() }; })
+          };
+        };
+        window.__ORBIT_SUGGESTIONS__ = function () { return linkSuggestions().map(function (r) { return { a: personLabel(r.a), b: personLabel(r.b), why: r.reasons.map(function (x) { return x.why; }) }; }); };
+        window.__ORBIT_ACCEPT__ = function (a, b) { addRelationship(a, b); render(); return neighboursOf(a).map(personLabel); };
+        window.__ORBIT_REJECT__ = function (a, b) { rejectLink(a, b); renderSuggestions(); return linkSuggestions().length; };
+        window.__ORBIT_HISTORY__ = function () { return networkHistory().map(function (r) { return { title: r.title, kind: r.kind, who: r.who, link: r.link }; }); };
+        window.__ORBIT_BRIEF__ = function () { return BR.page(briefModel()); };
+        window.__ORBIT_PROVENANCE__ = function (id) { var p = personById(id); return p && EV ? EV.provenance(p) : null; };
+        window.__ORBIT_GROUPFILTER__ = function (key) { state.groupFilter = key || ""; renderTagBar(); render(); return state.groupFilter; };
+        window.__ORBIT_QUERY__ = function (text) { state.query = String(text || ""); render(); return currentNodeIds(state.snapshot).length; };
         window.__ORBIT_EXPAND__ = function (id) { toggleExpanded(id); return Object.keys(state.expanded); };
         window.__ORBIT_DETAILNODES__ = function (id) {
           return state.nodesDS.getIds().filter(function (nodeId) { return isDetailNode(nodeId) && detailOwner(nodeId) === String(id); })
@@ -1625,6 +1731,10 @@
   function clearKindFilter() { if (activeKinds().length) { state.kindFilter = {}; renderTagBar(); render(); } }
   function activeTags() { return Object.keys(state.tagFilter); }
   function personMatchesFilter(person) {
+    if (state.groupFilter) {
+      var group = shapeOf().byPerson[String(person.id)];
+      if (!group || group.key !== state.groupFilter) return false;
+    }
     if (!personMatchesKinds(person)) return false;
     var active = activeTags();
     if (!active.length) return true;
@@ -1657,14 +1767,23 @@
       return '<button type="button" class="tag-chip kind' + (on ? " active" : "") + '" data-kind-filter="' + esc(row.meta.key) + '"' +
         ' aria-pressed="' + (on ? "true" : "false") + '"><span>' + esc(row.meta.label) + '</span><b>' + row.count + '</b></button>';
     }).join("");
-    if (kinds.length && census.length) html += '<span class="tag-bar-split" aria-hidden="true"></span>';
+    /* The groups the network falls into, offered as filters of their own. */
+    var groups = shapeOf().groups.slice(0, 5);
+    if (kinds.length && groups.length) html += '<span class="tag-bar-split" aria-hidden="true"></span>';
+    html += groups.map(function (group) {
+      var on = state.groupFilter === group.key;
+      return '<button type="button" class="tag-chip group' + (on ? " active" : "") + '" data-group-filter="' + esc(group.key) + '"' +
+        ' aria-pressed="' + (on ? "true" : "false") + '" title="A group that holds together without you"><i class="tag-dot"></i><span>' +
+        esc(group.name) + "</span><b>" + group.size + "</b></button>";
+    }).join("");
+    if ((kinds.length || groups.length) && census.length) html += '<span class="tag-bar-split" aria-hidden="true"></span>';
     html += census.map(function (entry) {
       var on = !!state.tagFilter[entry.key];
       return '<button type="button" class="tag-chip' + (on ? " active" : "") + '" data-tag-filter="' + esc(entry.key) + '"' +
         ' style="--tag-colour:' + esc(entry.colour) + '" aria-pressed="' + (on ? "true" : "false") + '">' +
         '<i class="tag-dot"></i><span>' + esc(entry.tag) + '</span><b>' + entry.count + '</b></button>';
     }).join("");
-    if (activeTags().length || activeKinds().length) html += '<button type="button" class="tag-chip clear" data-tag-clear="1">Clear filter</button>';
+    if (activeTags().length || activeKinds().length || state.groupFilter) html += '<button type="button" class="tag-chip clear" data-tag-clear="1">Clear filter</button>';
     bar.innerHTML = html;
   }
   /* The picker: every tag already in use, plus a line to invent a new one. */
@@ -1752,6 +1871,66 @@
     render();
     return true;
   }
+  /* ---- What the shape of the network says ----
+   * Groups, bridges and shared identifiers all read the same graph, so they are
+   * worked out together and cached until the case changes. None of it is
+   * stored: it is a reading of what is already there. */
+  function peopleForShape() {
+    if (!state.snapshot) return [];
+    return state.snapshot.entities.filter(function (e) { return D.isPerson(e) && !isMe(e.id); });
+  }
+  /* The identifiers a person holds, in the form the graph reasoner wants. */
+  function selectorsOf(person) {
+    var a = D.attrs(person), out = [];
+    [["Phone", a.phone], ["Phone", a.phoneOther], ["Email", a.email], ["Address", a.address], ["Address", a.workAddress]].forEach(function (pair) {
+      String(pair[1] == null ? "" : pair[1]).split(/[;,]/).forEach(function (value) {
+        var v = value.trim(); if (v) out.push({ kind: pair[0], value: v });
+      });
+    });
+    return out;
+  }
+  function shapeOf() {
+    if (!GR || !state.snapshot) return { groups: [], bridges: [], shared: [], byPerson: {}, bridgeIds: {} };
+    var stamp = state.snapshot.entities.length + "|" + state.snapshot.links.length + "|" + (state.snapshot.stats ? state.snapshot.stats.relationships : 0);
+    if (state.shape && state.shape.stamp === stamp) return state.shape;
+    var people = peopleForShape(), ids = people.map(function (e) { return String(e.id); });
+    var links = state.snapshot.links.map(function (l) { return { from: normaliseId(l.from), to: normaliseId(l.to) }; });
+    var raw = GR.groups(ids.concat([D.ME_ID]), links, { centre: D.ME_ID });
+    /* A group of one is a person, not a group. */
+    var groups = raw.filter(function (g) { return g.size > 1; }).map(function (g, index) {
+      return { key: "g" + (index + 1), name: groupName(g.members), members: g.members, size: g.size };
+    });
+    var byPerson = Object.create(null);
+    groups.forEach(function (group) { group.members.forEach(function (id) { byPerson[id] = group; }); });
+    var bridgeIds = Object.create(null);
+    var bridges = GR.bridges(ids.concat([D.ME_ID]), links, { centre: D.ME_ID }).map(function (row) {
+      bridgeIds[row.id] = row.splitsInto;
+      return { id: row.id, name: personLabel(row.id), splitsInto: row.splitsInto };
+    });
+    var shared = GR.sharedSelectors(people.map(function (person) {
+      return { id: String(person.id), selectors: selectorsOf(person) };
+    })).map(function (row) {
+      return { kind: row.kind, value: row.value, holders: row.holders, who: row.holders.map(personLabel) };
+    });
+    state.shape = { stamp: stamp, groups: groups, bridges: bridges, shared: shared, byPerson: byPerson, bridgeIds: bridgeIds };
+    return state.shape;
+  }
+  /* Name a group after what its members have in common, falling back to whoever
+   * is most connected inside it. */
+  function groupName(members) {
+    var tally = Object.create(null);
+    members.forEach(function (id) {
+      var person = personById(id); if (!person) return;
+      var a = D.attrs(person);
+      if (a.organisation) tally["org:" + a.organisation] = (tally["org:" + a.organisation] || 0) + 1;
+      (T ? T.parse(a.tags) : []).forEach(function (tag) { tally["tag:" + tag] = (tally["tag:" + tag] || 0) + 1; });
+    });
+    var best = "", bestCount = 1;
+    Object.keys(tally).forEach(function (key) { if (tally[key] > bestCount) { bestCount = tally[key]; best = key; } });
+    if (best) return best.slice(best.indexOf(":") + 1);
+    var names = members.map(personLabel).sort();
+    return names[0] + " and " + (members.length - 1) + " other" + (members.length === 2 ? "" : "s");
+  }
   function personById(id) { return state.snapshot && state.snapshot.entities.find(function (e) { return String(e.id) === String(id) && D.isPerson(e); }); }
   function nodeCtxMenu(id, x, y) {
     var person = personById(id); if (!person) return;
@@ -1773,6 +1952,7 @@
       fn: function () { toggleExpanded(id); }
     });
     if (!mine) items.push({ label: "How do I know them?", fn: function () { showPathTo(id); } });
+    items.push({ label: "Suggested relationships…", fn: openSuggestions });
     /* You sit at the centre by definition, so the ring and pin controls — and
      * deletion — are not yours. The chart controls take their place. */
     if (mine) {
@@ -2204,6 +2384,12 @@
    * Read straight off the handlers below, so the card cannot drift from the
    * behaviour. Half of this app is gestures; nothing announced them until now. */
   var SHORTCUTS = [
+    { group: "Asking a question", rows: [
+      { keys: ["tag:"], what: "Narrow the search to a tag — also org:, domain:, is:, has:, in:" },
+      { keys: ["has:phone"], what: "Only people you actually hold a number for" },
+      { keys: ["-tag:work"], what: "A minus excludes; several terms narrow together" },
+      { keys: ['in:"…"'], what: "Quote a phrase to keep it whole" }
+    ] },
     { group: "Getting around", rows: [
       { keys: ["←", "→"], what: "Step to the previous or next contact, wrapping" },
       { keys: ["Esc"], what: "Back out: picker, menu, selection, tag filter, path, panel" },
@@ -2375,7 +2561,11 @@
     return state.snapshot.entities.filter(function (e) { return D.isPerson(e) && !isMe(e.id); }).map(function (person) {
       var summary = D.personSummary(person, state.snapshot.links);
       var ring = String(D.attrs(person).ring || summary.ring);
-      var debt = D.contactDebt(ring, last[String(person.id)] == null ? null : last[String(person.id)], now);
+      /* A mailbox import records a last-email date even where it kept no
+       * message; a relationship with a known last contact is not "never". */
+      var known = last[String(person.id)];
+      if (known == null) { var stamped = Date.parse(String(D.attrs(person).emailLastAt || "")); if (!isNaN(stamped)) known = stamped; }
+      var debt = D.contactDebt(ring, known == null ? null : known, now);
       return { id: String(person.id), label: person.label || "Unnamed", ring: ring, debt: debt };
     }).filter(function (row) { return row.debt.days > 0; })
       .sort(function (a, b) { return b.debt.days - a.debt.days || a.label.localeCompare(b.label); });
@@ -2397,6 +2587,182 @@
       ? formatCount(rows.length) + " OVERDUE · LONGEST " + rows[0].label.toUpperCase() + " (" + rows[0].debt.days + "D PAST DUE)"
       : "NOBODY IS OVERDUE");
   }
+  /* ================= Suggested relationships ==========================
+   * The evidence often implies a relationship nobody has drawn. Nothing is
+   * created here without being accepted, and a pair you reject stays rejected. */
+  var SUGGEST_KEY = "orbit_rejected_links_v1";
+  function rejectedLinks() { try { var v = JSON.parse(window.localStorage.getItem(SUGGEST_KEY) || "[]"); return Array.isArray(v) ? v : []; } catch (e) { return []; } }
+  function rejectLink(a, b) { var list = rejectedLinks(); list.push(pairKey(a, b)); try { window.localStorage.setItem(SUGGEST_KEY, JSON.stringify(list)); } catch (e) {} }
+  function restoreRejected() { try { window.localStorage.removeItem(SUGGEST_KEY); } catch (e) {} renderSuggestions(); }
+  /* People named on the same message or meeting, from the links already drawn. */
+  function eventMembers() {
+    var out = Object.create(null);
+    if (!state.snapshot) return out;
+    var interactions = Object.create(null);
+    state.snapshot.entities.forEach(function (entity) { if (D.isInteraction(entity)) interactions[String(entity.id)] = true; });
+    state.snapshot.links.forEach(function (link) {
+      var from = normaliseId(link.from), to = normaliseId(link.to);
+      var event = interactions[from] ? from : (interactions[to] ? to : "");
+      if (!event) return;
+      var person = event === from ? to : from;
+      if (isMe(person) || !personById(person)) return;
+      (out[event] = out[event] || []).push(person);
+    });
+    return out;
+  }
+  function linkSuggestions() {
+    if (!GR || !state.snapshot) return [];
+    var rejected = rejectedLinks();
+    var people = peopleForShape().map(function (person) {
+      return { id: String(person.id), organisation: String(D.attrs(person).organisation || ""), selectors: selectorsOf(person) };
+    });
+    return GR.suggestLinks({
+      centre: D.ME_ID, people: people, links: state.snapshot.links.map(function (l) { return { from: normaliseId(l.from), to: normaliseId(l.to) }; }),
+      eventMembers: eventMembers()
+    }).filter(function (row) { return rejected.indexOf(pairKey(row.a, row.b)) === -1; })
+      .filter(function (row) { return personById(row.a) && personById(row.b); });
+  }
+  function renderSuggestions() {
+    var list = $("#suggest-list"); if (!list) return;
+    var rows = linkSuggestions();
+    setText("#suggest-summary", rows.length
+      ? formatCount(rows.length) + " relationship" + (rows.length === 1 ? "" : "s") + " the evidence already implies. Nothing is drawn until you say so."
+      : "Nothing to suggest. Orbit looks for shared identifiers, shared organisations, and people named on the same message.");
+    list.innerHTML = rows.slice(0, 60).map(function (row) {
+      return '<div class="dupe-row">' +
+        '<div class="dupe-pair"><strong>' + esc(personLabel(row.a)) + "</strong><em>and</em><strong>" + esc(personLabel(row.b)) + "</strong></div>" +
+        '<div class="dupe-why">' + esc(row.reasons.map(function (r) { return r.why; }).join(" · ")) + "</div>" +
+        '<div class="dupe-actions">' +
+        '<button type="button" class="toolbar-button" data-accept-a="' + esc(row.a) + '" data-accept-b="' + esc(row.b) + '">Draw it</button>' +
+        '<button type="button" class="toolbar-button" data-reject-a="' + esc(row.a) + '" data-reject-b="' + esc(row.b) + '">Not related</button>' +
+        "</div></div>";
+    }).join("") || '<div class="dupes-empty">Nothing to review.</div>';
+  }
+  function openSuggestions() { renderSuggestions(); var m = $("#suggest-modal"); if (m) { m.hidden = false; var c = m.querySelector("[data-action=close-suggest]"); if (c) c.focus(); } }
+  function closeSuggestions() { var m = $("#suggest-modal"); if (m) m.hidden = true; }
+
+  /* ================= What the shape says ============================== */
+  function insightRow(title, detail, action) {
+    return '<div class="insight-row"><strong>' + esc(title) + "</strong>" +
+      (action ? action : '<span>' + esc(detail) + "</span>") + "</div>";
+  }
+  function insightGroup(title, note, body) {
+    return '<div class="insight-group"><h3>' + esc(title) + "</h3>" +
+      (note ? '<p class="insight-note">' + esc(note) + "</p>" : "") +
+      (body || '<div class="insight-empty">Nothing yet.</div>') + "</div>";
+  }
+  function renderInsights() {
+    var body = $("#insights-body"); if (!body) return;
+    var shape = shapeOf(), suggestions = linkSuggestions(), cold = coldList();
+    var parts = [];
+    parts.push(insightGroup("Groups", "People who reach each other without going through you.",
+      shape.groups.slice(0, 8).map(function (group) {
+        return insightRow(group.name, group.size + (group.size === 1 ? " person" : " people"),
+          '<button type="button" data-show-group="' + esc(group.key) + '">Show ' + group.size + "</button>");
+      }).join("")));
+    parts.push(insightGroup("Who holds it together", "Remove one of these and part of your network stops being connected to the rest.",
+      shape.bridges.slice(0, 8).map(function (row) {
+        return insightRow(row.name, "splits into " + row.splitsInto,
+          '<button type="button" data-open-person="' + esc(row.id) + '">Open</button>');
+      }).join("")));
+    parts.push(insightGroup("Identifiers held by more than one person", "A household, a workplace, or the same person recorded twice.",
+      shape.shared.slice(0, 8).map(function (row) {
+        return insightRow(row.value, row.kind + " · " + row.who.join(", "));
+      }).join("")));
+    parts.push(insightGroup("Relationships the evidence implies", "",
+      suggestions.slice(0, 6).map(function (row) {
+        return insightRow(personLabel(row.a) + " ↔ " + personLabel(row.b), row.reasons[0].why,
+          '<button type="button" data-open-suggestions="1">Review ' + suggestions.length + "</button>");
+      }).join("")));
+    parts.push(insightGroup("Going quiet", "",
+      cold.slice(0, 6).map(function (row) {
+        return insightRow(row.label, row.days + " days overdue",
+          '<button type="button" data-open-person="' + esc(row.id) + '">Open</button>');
+      }).join("")));
+    body.innerHTML = parts.join("");
+  }
+  function openInsights() { renderInsights(); var m = $("#insights-modal"); if (m) { m.hidden = false; var c = m.querySelector("[data-action=close-insights]"); if (c) c.focus(); } }
+  function closeInsights() { var m = $("#insights-modal"); if (m) m.hidden = true; }
+
+  /* ================= Everything that has happened ===================== */
+  function networkHistory() {
+    if (!state.snapshot) return [];
+    var owners = Object.create(null);
+    state.snapshot.links.forEach(function (link) {
+      var from = normaliseId(link.from), to = normaliseId(link.to);
+      var a = personById(from), b = personById(to);
+      if (a && !b) (owners[to] = owners[to] || []).push(from);
+      else if (b && !a) (owners[from] = owners[from] || []).push(to);
+    });
+    return state.snapshot.entities.filter(function (entity) {
+      return D.isInteraction(entity) || (String(entity.type || "").toLowerCase() === "fact" && D.attrs(entity).validFrom);
+    }).map(function (entity) {
+      var a = D.attrs(entity);
+      return {
+        id: String(entity.id), title: String(entity.label || "Record"),
+        at: Date.parse(a.occurredAt || a.validFrom || a.observedAt || "") || 0,
+        kind: D.isInteraction(entity) ? String(a.channel || a.interactionType || "interaction") : "note",
+        link: String(a.link || ""), who: (owners[String(entity.id)] || []).map(personLabel)
+      };
+    }).filter(function (row) { return row.at > 0; })
+      .sort(function (x, y) { return y.at - x.at; });
+  }
+  function renderHistory() {
+    var list = $("#history-list"); if (!list) return;
+    var rows = networkHistory();
+    setText("#history-summary", rows.length
+      ? formatCount(rows.length) + " dated record" + (rows.length === 1 ? "" : "s") + " across the whole network, most recent first."
+      : "Nothing dated yet. Import a mailbox or a calendar, or log an interaction.");
+    list.innerHTML = rows.slice(0, 300).map(function (row) {
+      var safe = /^https:\/\//i.test(row.link) ? row.link : "";
+      var title = safe ? '<a href="' + esc(safe) + '" target="_blank" rel="noreferrer">' + esc(row.title) + "</a>" : esc(row.title);
+      return '<div class="history-row"><div class="history-when">' + esc(formatDate(new Date(row.at).toISOString())) + "</div>" +
+        '<div><div class="history-what">' + title + "</div>" +
+        '<div class="history-who">' + esc([row.kind, row.who.join(", ")].filter(Boolean).join(" · ")) + "</div></div></div>";
+    }).join("") || '<div class="dupes-empty">Nothing to show.</div>';
+  }
+  function openHistory() { renderHistory(); var m = $("#history-modal"); if (m) { m.hidden = false; var c = m.querySelector("[data-action=close-history]"); if (c) c.focus(); } }
+  function closeHistory() { var m = $("#history-modal"); if (m) m.hidden = true; }
+
+  /* ================= The brief ======================================== */
+  function briefModel() {
+    var shape = shapeOf(), account = A && A.current ? A.current() : null;
+    var sources = Object.create(null);
+    (state.snapshot ? state.snapshot.entities : []).forEach(function (entity) {
+      var label = EV ? EV.sourceLabel(entity.source || D.attrs(entity).sourceType) : String(entity.source || "");
+      sources[label] = (sources[label] || 0) + 1;
+    });
+    var emailed = peopleForShape().map(function (person) {
+      var a = D.attrs(person);
+      return { name: person.label, total: Number(a.emailTotal || 0), lastAt: a.emailLastAt || "" };
+    }).filter(function (row) { return row.total > 0; }).sort(function (x, y) { return y.total - x.total; });
+    return {
+      owner: (account && account.name) || "Your network",
+      generatedAt: new Date().toISOString(),
+      stats: state.snapshot ? state.snapshot.stats : {},
+      groups: shape.groups.map(function (g) { return { name: g.name, size: g.size, sample: g.members.slice(0, 4).map(personLabel) }; }),
+      bridges: shape.bridges,
+      cold: coldList().map(function (row) { return { name: row.label, ring: RING_LABELS[row.ring] || "", days: row.debt.days }; }),
+      mostEmailed: emailed,
+      recent: networkHistory().slice(0, 20).map(function (row) { return { date: new Date(row.at).toISOString(), title: row.title, who: row.who.join(", ") }; }),
+      shared: shape.shared,
+      suggestions: linkSuggestions().map(function (row) { return { a: personLabel(row.a), b: personLabel(row.b), why: row.reasons[0].why }; }),
+      sources: Object.keys(sources).sort().map(function (label) { return { label: label, count: sources[label] }; })
+    };
+  }
+  function writeBrief() {
+    if (!BR) return;
+    try {
+      var blob = new Blob([BR.page(briefModel())], { type: "text/html" });
+      var url = URL.createObjectURL(blob), link = document.createElement("a");
+      link.href = url;
+      link.download = "orbit-brief-" + new Date().toISOString().slice(0, 10) + ".html";
+      document.body.appendChild(link); link.click(); link.remove();
+      setTimeout(function () { URL.revokeObjectURL(url); }, 0);
+      setText("#sync-status", "BRIEF WRITTEN");
+    } catch (error) { setText("#sync-status", "THE BRIEF COULD NOT BE WRITTEN"); }
+  }
+
   function visibleModal() {
     return $$(".modal-layer").filter(function (layer) { return !layer.hidden; })[0] || null;
   }
@@ -2408,7 +2774,8 @@
       "person-modal": closeModal, "vault-modal": closeVault, "import-modal": closeImport,
       "record-modal": closeRecord, "account-modal": closeAccountModal,
       "connections-modal": closeConnections, "recycle-modal": closeRecycleBin,
-      "shortcuts-modal": closeShortcuts, "dupes-modal": closeDupes
+      "shortcuts-modal": closeShortcuts, "dupes-modal": closeDupes,
+      "insights-modal": closeInsights, "suggest-modal": closeSuggestions, "history-modal": closeHistory
     };
     $$(".modal-layer").forEach(function (layer) {
       var close = closers[layer.id]; if (!close) return;
@@ -3009,6 +3376,48 @@
     $$('[data-action="recenter"]').forEach(function (button) { button.addEventListener("click", recenterView); });
     $$('[data-action="theme"]').forEach(function (button) { button.addEventListener("click", function () { var r = button.getBoundingClientRect(); showThemePicker(r.left, r.bottom + 6); }); });
     $$('[data-action="layout"]').forEach(function (button) { button.addEventListener("click", function () { var r = button.getBoundingClientRect(); showLayoutPicker(r.left, r.bottom + 6); }); });
+    $$('[data-action="insights"]').forEach(function (button) { button.addEventListener("click", openInsights); });
+    $$('[data-action="close-insights"]').forEach(function (button) { button.addEventListener("click", closeInsights); });
+    $$('[data-action="history"]').forEach(function (button) { button.addEventListener("click", openHistory); });
+    $$('[data-action="close-history"]').forEach(function (button) { button.addEventListener("click", closeHistory); });
+    $$('[data-action="close-suggest"]').forEach(function (button) { button.addEventListener("click", closeSuggestions); });
+    var resetSuggest = $('[data-action="reset-suggest"]'); if (resetSuggest) resetSuggest.addEventListener("click", restoreRejected);
+    var writeBriefButton = $('[data-action="write-brief"]'); if (writeBriefButton) writeBriefButton.addEventListener("click", writeBrief);
+    var insightsBody = $("#insights-body");
+    if (insightsBody) insightsBody.addEventListener("click", function (event) {
+      var button = event.target.closest("[data-show-group],[data-open-person],[data-open-suggestions]");
+      if (!button) return;
+      if (button.hasAttribute("data-open-suggestions")) { closeInsights(); openSuggestions(); return; }
+      if (button.hasAttribute("data-open-person")) {
+        closeInsights();
+        state.selectedId = button.getAttribute("data-open-person");
+        render(); openDossier(state.selectedId);
+        return;
+      }
+      state.groupFilter = button.getAttribute("data-show-group");
+      closeInsights(); renderTagBar(); render();
+    });
+    var suggestList = $("#suggest-list");
+    if (suggestList) suggestList.addEventListener("click", function (event) {
+      var button = event.target.closest("[data-accept-a],[data-reject-a]");
+      if (!button) return;
+      if (button.hasAttribute("data-reject-a")) {
+        rejectLink(button.getAttribute("data-reject-a"), button.getAttribute("data-reject-b"));
+        renderSuggestions();
+        setText("#sync-status", "MARKED AS UNRELATED");
+        return;
+      }
+      addRelationship(button.getAttribute("data-accept-a"), button.getAttribute("data-accept-b"));
+      render();
+      renderSuggestions();
+    });
+    var facts = $("#dossier-facts");
+    if (facts) facts.addEventListener("click", function (event) {
+      var fact = event.target.closest("[data-why-score]");
+      if (!fact) return;
+      var box = fact.getBoundingClientRect();
+      showScoreReason(box.right + 8, box.top);
+    });
     $$('[data-action="shortcuts"]').forEach(function (button) { button.addEventListener("click", openShortcuts); });
     $$('[data-action="close-shortcuts"]').forEach(function (button) { button.addEventListener("click", closeShortcuts); });
     $$('[data-action="find-duplicates"]').forEach(function (button) { button.addEventListener("click", openDupes); });
@@ -3048,7 +3457,15 @@
     if (tagBar) tagBar.addEventListener("click", function (event) {
       var chip = event.target.closest("[data-tag-filter],[data-kind-filter],[data-tag-clear]");
       if (!chip) return;
-      if (chip.hasAttribute("data-tag-clear")) { state.tagFilter = {}; state.kindFilter = {}; renderTagBar(); render(); setText("#sync-status", "FILTER CLEARED"); return; }
+      if (chip.hasAttribute("data-tag-clear")) { state.tagFilter = {}; state.kindFilter = {}; state.groupFilter = ""; renderTagBar(); render(); setText("#sync-status", "FILTER CLEARED"); return; }
+      if (chip.hasAttribute("data-group-filter")) {
+        var key = chip.getAttribute("data-group-filter");
+        state.groupFilter = state.groupFilter === key ? "" : key;
+        renderTagBar(); render();
+        var group = shapeOf().groups.filter(function (g) { return g.key === state.groupFilter; })[0];
+        setText("#sync-status", group ? "SHOWING " + group.name.toUpperCase() + " · " + group.size + " PEOPLE" : "FILTER CLEARED");
+        return;
+      }
       if (chip.hasAttribute("data-kind-filter")) { toggleKindFilter(chip.getAttribute("data-kind-filter")); return; }
       toggleTagFilter(chip.getAttribute("data-tag-filter"));
     });
@@ -3103,12 +3520,12 @@
       if (collapseAll()) { setText("#sync-status", "COLLAPSED"); return; }
       if (state.path) { clearPath(); return; }
       if (state.coldMode) { toggleColdMode(); return; }
-      if (activeTags().length || activeKinds().length) { clearTagFilter(); clearKindFilter(); setText("#sync-status", "FILTER CLEARED"); return; }
+      if (activeTags().length || activeKinds().length || state.groupFilter) { state.groupFilter = ""; clearTagFilter(); clearKindFilter(); renderTagBar(); render(); setText("#sync-status", "FILTER CLEARED"); return; }
       if (state.linkFrom) { endLinkFrom(); return; }
       if (state.selectedEdge) { clearEdgeSelection(); return; }
       var empty = $("#network-empty");
       if (empty && !empty.hidden && !visibleModal()) { dismissEmpty(); return; }
-      closeModal(); closeRecord(); closeVault(); closeImport(); closeAccountModal(); closeConnections(); closeRecycleBin(); closeShortcuts(); closeDupes(); closeDossier();
+      closeModal(); closeRecord(); closeVault(); closeImport(); closeAccountModal(); closeConnections(); closeRecycleBin(); closeShortcuts(); closeDupes(); closeInsights(); closeSuggestions(); closeHistory(); closeDossier();
     });
   }
   function startWorkspace() {

@@ -3,11 +3,12 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node scripts/test-import-pipeline.mjs && node scripts/test-layouts.mjs && node scripts/test-boot-smoke.mjs",
+    "test": "node scripts/test-import-pipeline.mjs && node scripts/test-reasoning.mjs && node scripts/test-mbox.mjs && node scripts/test-layouts.mjs && node scripts/test-boot-smoke.mjs",
     "test:import": "node scripts/test-import-pipeline.mjs",
     "test:boot": "node scripts/test-boot-smoke.mjs",
     "build": "node standalone/build-personal-network.mjs",
-    "preview": "node scripts/phone-preview-server.mjs"
+    "preview": "node scripts/phone-preview-server.mjs",
+    "test:reasoning": "node scripts/test-reasoning.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.112.3"
