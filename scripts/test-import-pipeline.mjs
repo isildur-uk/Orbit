@@ -156,6 +156,46 @@ assert("noreply record filtered out of JSON too", !genReview.candidates.some((c)
 eq("one automated record reported skipped", genReview.skippedCount, 1);
 assert("real person survives JSON import", genReview.candidates.some((c) => c.name === "Real Person"));
 
+console.log("\n[9] Google Contacts CSV export (repeated \"E-mail 1 - Value\" columns)");
+/* The export Google Contacts produces today. Every column here except the name,
+ * birthday and notes used to be dropped on the floor. */
+const googleCsv = [
+  "First Name,Middle Name,Last Name,Nickname,Organization Name,Organization Title,Birthday,Notes,Labels,E-mail 1 - Label,E-mail 1 - Value,E-mail 2 - Label,E-mail 2 - Value,Phone 1 - Label,Phone 1 - Value,Phone 2 - Label,Phone 2 - Value,Address 1 - Label,Address 1 - Formatted,Website 1 - Label,Website 1 - Value",
+  'Tom,,Baker,Tommy,Acme Ltd,Head of Ops,1985-04-02,Met at the conference,* myContacts,Work,tom@acme.com,Home,tom@home.com,Mobile,+44 7700 900111,Work,+44 20 7946 0000,Home,"12 Hill Road, Bristol",Profile,https://acme.com/tom'
+].join("\n");
+const g = Importers.review(googleCsv, "contacts.csv").candidates[0] || {};
+eq("Google CSV name", g.name, "Tom Baker");
+eq("Google CSV keeps both emails", g.email, "tom@acme.com, tom@home.com");
+eq("Google CSV first phone", g.phone, "+44 7700 900111");
+eq("Google CSV second phone", g.phoneOther, "+44 20 7946 0000");
+eq("Google CSV organisation", g.organisation, "Acme Ltd");
+eq("Google CSV role", g.role, "Head of Ops");
+eq("Google CSV address", g.address, "12 Hill Road, Bristol");
+eq("Google CSV website", g.website, "https://acme.com/tom");
+eq("Google CSV nickname", g.preferredName, "Tommy");
+assert("Label columns are not imported as values", !/^(work|home|mobile)$/i.test(String(g.role)));
+
+/* The older Google export shape, still produced by some accounts. */
+const legacyCsv = [
+  "Name,Given Name,Family Name,E-mail 1 - Type,E-mail 1 - Value,Phone 1 - Type,Phone 1 - Value,Organization 1 - Name,Organization 1 - Title",
+  "Priya Patel,Priya,Patel,Home,priya@example.com,Mobile,07700 900222,Globex,Director"
+].join("\n");
+const lg = Importers.review(legacyCsv, "contacts.csv").candidates[0] || {};
+eq("legacy Google CSV email", lg.email, "priya@example.com");
+eq("legacy Google CSV phone", lg.phone, "07700 900222");
+eq("legacy Google CSV organisation", lg.organisation, "Globex");
+eq("legacy Google CSV role", lg.role, "Director");
+
+/* Outlook's shape must keep working unchanged. */
+const outlookCsv = [
+  "First Name,Last Name,E-mail Address,Mobile Phone,Company,Job Title",
+  "Mia,Wong,mia@example.com,07700 900333,Initech,Analyst"
+].join("\n");
+const ol = Importers.review(outlookCsv, "contacts.csv").candidates[0] || {};
+eq("Outlook CSV email still maps", ol.email, "mia@example.com");
+eq("Outlook CSV phone still maps", ol.phone, "07700 900333");
+eq("Outlook CSV company still maps", ol.organisation, "Initech");
+
 console.log("\n----------------------------------------");
 console.log("  " + passed + " passed, " + failed + " failed");
 console.log("----------------------------------------\n");

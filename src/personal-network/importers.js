@@ -103,8 +103,21 @@
   /* LinkedIn (and some other) exports carry a preamble before the header row and
    * split the name across First/Last Name, so we locate the real header row
    * rather than assuming row 0. */
+  /* Google Contacts exports repeat fields as "E-mail 1 - Value", "Phone 2 - Label"
+   * and "Organization 1 - Title". Collapse each to its plain field name, keeping
+   * the index so two numbers stay two distinct columns, and drop the Label/Type
+   * columns — those hold "Home"/"Work", not a value. Anything without Google's
+   * " - " suffix is keyed exactly as before. */
+  function normaliseHeader(value) {
+    var raw = lower(value).replace(/\s+/g, " ").trim();
+    var parts = raw.match(/^(.+?)\s+(\d+)?\s*-\s+(.+)$/);
+    if (!parts) return key(raw);
+    var part = key(parts[3]);
+    if (part === "label" || part === "type") return "";
+    return key(parts[1]) + (parts[2] || "") + (part === "value" || part === "formatted" ? "" : part);
+  }
   function looksLikeHeaderRow(row) {
-    return row.map(key).some(function (h) { return /^(firstname|lastname|fullname|displayname|contactname|name|emailaddress|email|phone|mobile|tel|telephone)$/.test(h); });
+    return row.map(normaliseHeader).some(function (h) { return /^(firstname|givenname|lastname|familyname|fullname|displayname|contactname|name|emailaddress|email\d*|phone\d*|mobile|tel|telephone)$/.test(h); });
   }
   function csv(textValue, fileName) {
     var rows = splitCSV(textValue), out = [];
@@ -113,30 +126,35 @@
     for (var r = 0; r < rows.length && r < 8; r++) { if (looksLikeHeaderRow(rows[r])) { headerIndex = r; break; } }
     var headers, dataRows, base;
     if (headerIndex === -1) { headers = rows[0].map(function (_, i) { return i === 0 ? "name" : "value" + i; }); dataRows = rows; base = 1; }
-    else { headers = rows[headerIndex].map(key); dataRows = rows.slice(headerIndex + 1); base = headerIndex + 2; }
+    else { headers = rows[headerIndex].map(normaliseHeader); dataRows = rows.slice(headerIndex + 1); base = headerIndex + 2; }
     dataRows.forEach(function (row, index) {
       var raw = {};
       headers.forEach(function (header, i) { raw[header] = text(row[i]); });
       var aliases = {}, firstName = "", lastName = "";
       Object.keys(raw).forEach(function (header) { var value = raw[header]; if (!value) return;
         if (/^(name|fullname|displayname|contactname)$/.test(header)) aliases.name = value;
-        else if (/^firstname$/.test(header)) firstName = value;
-        else if (/^lastname$/.test(header)) lastName = value;
+        else if (/^(firstname|givenname)$/.test(header)) firstName = value;
+        else if (/^(lastname|familyname|surname)$/.test(header)) lastName = value;
         else if (/^(preferredname|nickname)$/.test(header)) aliases.preferredName = value;
-        else if (/^(role|title|jobtitle|position)$/.test(header)) aliases.role = value;
-        else if (/^(organisation|organization|company|companyname|org)$/.test(header)) aliases.organisation = value;
-        else if (/^(location|city|town|address)$/.test(header)) { aliases.location = value; if (header === "address") aliases.address = value; }
+        else if (/^(role|title|jobtitle|position)$/.test(header) || /^(organisation|organization|company|org)\d*title$/.test(header)) aliases.role = value;
+        else if (/^(organisation|organization|company|org)\d*(name)?$/.test(header)) aliases.organisation = value;
+        else if (/^(location|city|town)$/.test(header)) aliases.location = value;
         else if (/^e?mail(address)?\d*$/.test(header)) aliases.email = aliases.email ? aliases.email + ", " + value : value;
-        else if (/^(phone|telephone|tel|mobile|mobilephone)\d*$/.test(header)) aliases.phone = aliases.phone ? aliases.phone + ", " + value : value;
+        /* The first number is the phone, the rest join phoneOther — the two
+         * fields the contact form actually has. */
+        else if (/^(phone|telephone|tel|mobile|mobilephone)\d*$/.test(header)) {
+          if (!aliases.phone) aliases.phone = value;
+          else aliases.phoneOther = aliases.phoneOther ? aliases.phoneOther + ", " + value : value;
+        }
         else if (/^(otherphone|phone2|mobile2)$/.test(header)) aliases.phoneOther = value;
         else if (/whatsapp/.test(header)) aliases.whatsapp = value;
         else if (/signal/.test(header)) aliases.signal = value;
         else if (/instagram/.test(header)) aliases.instagram = value;
         else if (/facebook/.test(header)) aliases.facebook = value;
-        else if (/^(website|url|web|profile)$/.test(header)) aliases.website = value;
+        else if (/^(website|url|web|profile)\d*$/.test(header)) aliases.website = value;
         else if (/^(x|twitter|twitterhandle)$/.test(header)) aliases.x = value;
-        else if (/^(homeaddress|streetaddress)$/.test(header)) aliases.address = value;
         else if (/^(workaddress|officeaddress)$/.test(header)) aliases.workAddress = value;
+        else if (/^(address|homeaddress|streetaddress)\d*$/.test(header)) aliases.address = aliases.address || value;
         else if (/^(birthday|birthdate|dob)$/.test(header)) aliases.birthday = value;
         else if (/^interests?$/.test(header)) aliases.interests = value;
         else if (/^(social|socialprofiles|profiles)$/.test(header)) aliases.socialProfiles = value;

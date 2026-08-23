@@ -619,6 +619,7 @@
         window.__ORBIT_RESTORE__ = function (tid) { trashRestore(tid); return trashCount(); };
         window.__ORBIT_PEOPLE__ = function () { return state.snapshot ? state.snapshot.entities.filter(D.isPerson).length : 0; };
         window.__ORBIT_SELECTED__ = function () { return state.selectedId; };
+        window.__ORBIT_VIEW__ = function () { try { var v = state.network.getViewPosition(); return { scale: Number(state.network.getScale().toFixed(4)), x: Math.round(v.x), y: Math.round(v.y) }; } catch (e) { return null; } };
         window.__ORBIT_TOGGLE__ = function (id) { toggleSelectedId(id); return Object.keys(state.selectedIds); };
         window.__ORBIT_NEIGHBOURS__ = function (id) { return neighboursOf(String(id)).map(personLabel); };
         window.__ORBIT_MERGE__ = function (survivor, absorbed) { mergeContacts(survivor, absorbed); return state.selectedId; };
@@ -627,7 +628,14 @@
         window.__ORBIT_NODEAT__ = function (id) { try { var d = state.network.canvasToDOM(state.network.getPositions([id])[id]); return state.network.getNodeAt(d); } catch (e) { return "err:" + e.message; } };
       }
     } else {
+      /* setData re-frames the chart from scratch. Whatever the user zoomed or
+       * panned to has to be put back, or selecting, editing or deleting yanks
+       * the view out from under them. The refit block below still overrides this
+       * for the cases that genuinely want a new frame. */
+      var keepView = null;
+      try { keepView = { position: state.network.getViewPosition(), scale: state.network.getScale() }; } catch (e) {}
       state.network.setData(data);
+      if (keepView) { try { state.network.moveTo({ position: keepView.position, scale: keepView.scale, animation: false }); } catch (e) {} }
     }
     /* Physics runs only for the Force layout, and only until it settles (then it
      * freezes, capturing positions), so selecting or editing never re-shuffles. */
@@ -639,9 +647,12 @@
           : { physics: false });
       } catch (e) {}
     }
-    /* Only refit the view when the set of people changes; a plain re-render
-     * (selecting, editing) must not yank the camera around after a drag. */
-    if (firstBuild || state._nodeCount !== people.length) {
+    /* Refit only when people ARRIVE (an import, an undo, a cleared search) or a
+     * search narrows the chart. Deleting one of the people on screen leaves the
+     * view exactly where it was, so cycling through with ←/→ and deleting as you
+     * go never re-frames the chart. */
+    var countChanged = state._nodeCount !== people.length, grew = people.length > state._nodeCount;
+    if (firstBuild || (countChanged && (grew || state.query.trim()))) {
       if (state.query.trim()) {
         try { state.network.fit({ animation: !firstBuild }); } catch (e) {}   /* frame the search matches */
       } else if (state.layout === "orbit") {
@@ -649,8 +660,8 @@
         var scale = Math.max(0.35, Math.min(1.1, Math.min(w, h) / (2 * 540)));
         try { state.network.moveTo({ position: { x: 0, y: 0 }, scale: scale, animation: false }); } catch (e) { state.network.fit({ animation: false }); }
       } else { state.network.fit({ animation: false }); }
-      state._nodeCount = people.length;
     }
+    state._nodeCount = people.length;
     $("#network-empty").hidden = snapshot.stats.people > 0 || state.emptyDismissed;
   }
   function dismissEmpty() { state.emptyDismissed = true; var el = $("#network-empty"); if (el) el.hidden = true; }
