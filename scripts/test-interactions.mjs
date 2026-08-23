@@ -57,21 +57,31 @@ assert("ring persists after re-render", await page.evaluate((i) => { window.__OR
 
 // --- Task 3: arrow-key cycling ---------------------------------------------
 console.log("\n[3] arrow-key cycling of a selection's connections");
-// Alex's connections (excluding ME): Mia Wong, Tom Baker → label-sorted [Mia, Tom]
+// All people, label-sorted: Alex Morgan, Grace Field, Liam Murphy, Mia Wong, Priya Patel, Tom Baker
 await page.evaluate((i) => window.__ORBIT_SELECT__(i), id("Alex Morgan"));
 await wait(120);
 const c1 = await page.evaluate(() => window.__ORBIT_CYCLE__(1));
-assert("→ selects Alex's first connection (Mia Wong)", c1 === id("Mia Wong"), c1);
+assert("→ steps to the next person (Grace Field)", c1 === id("Grace Field"), c1);
 const c2 = await page.evaluate(() => window.__ORBIT_CYCLE__(1));
-assert("→ advances to the next connection (Tom Baker)", c2 === id("Tom Baker"), c2);
-const c3 = await page.evaluate(() => window.__ORBIT_CYCLE__(1));
-assert("→ wraps back to the first connection", c3 === id("Mia Wong"), c3);
-const c4 = await page.evaluate(() => window.__ORBIT_CYCLE__(-1));
-assert("← steps backwards (wraps to Tom Baker)", c4 === id("Tom Baker"), c4);
-// A person with no connections doesn't move the selection.
+assert("→ advances again (Liam Murphy)", c2 === id("Liam Murphy"), c2);
+const c3 = await page.evaluate(() => window.__ORBIT_CYCLE__(-1));
+assert("← steps back (Grace Field)", c3 === id("Grace Field"), c3);
+// Wrapping: from the first person, ← lands on the last.
+await page.evaluate((i) => window.__ORBIT_SELECT__(i), id("Alex Morgan"));
+const wrap = await page.evaluate(() => window.__ORBIT_CYCLE__(-1));
+assert("← from the first person wraps to the last (Tom Baker)", wrap === id("Tom Baker"), wrap);
+// Works from anyone, including a person with no links (Mia Wong → Priya Patel).
 await page.evaluate((i) => window.__ORBIT_SELECT__(i), id("Mia Wong"));
-const lonely = await page.evaluate(() => window.__ORBIT_CYCLE__(1));
-assert("cycling a leaf node stays put", lonely === id("Mia Wong") || lonely === id("Alex Morgan"), lonely);
+const fromLeaf = await page.evaluate(() => window.__ORBIT_CYCLE__(1));
+assert("cycles even from a person with no connections", fromLeaf === id("Priya Patel"), fromLeaf);
+// The REAL arrow key (not just the hook) drives the cycle end-to-end.
+await page.evaluate((i) => window.__ORBIT_SELECT__(i), id("Alex Morgan"));
+await page.evaluate(() => { if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); });
+await wait(100);
+await page.keyboard.press("ArrowRight");
+await wait(220);
+const domName = await page.evaluate(() => (document.querySelector("#dossier-name") || {}).textContent);
+assert("pressing the real → key cycles the open profile", domName === "Grace Field", domName);
 
 // --- Task 4: relationship-type picker on draw ------------------------------
 console.log("\n[4] relationship-type picker appears when a connection is drawn");

@@ -477,8 +477,8 @@ html,body{background:var(--network-gradient-canvas)}
 .toolbar-button.danger:hover{background:var(--network-gradient-action);border-color:#da291c;color:#fff}
 
 /* Draggable divider to resize the left sidebar (SOLAR panelresize model). */
-#intel-resize{position:absolute;top:0;right:-4px;width:8px;height:100%;z-index:6;cursor:col-resize;touch-action:none}
-#intel-resize::after{content:"";position:absolute;top:0;right:4px;width:1px;height:100%;background:transparent;transition:background .15s ease}
+#intel-resize{position:absolute;top:0;bottom:0;left:var(--intel-w,360px);width:10px;transform:translateX(-5px);z-index:14;cursor:col-resize;touch-action:none}
+#intel-resize::after{content:"";position:absolute;top:0;left:5px;width:1px;height:100%;background:transparent;transition:background .15s ease}
 #intel-resize:hover::after,#intel-resize.is-dragging::after{background:var(--network-accent)}
 body.is-panel-resizing{cursor:col-resize;user-select:none}
 @media (max-width:720px){#intel-resize{display:none}}
@@ -599,3 +599,6 @@ body.is-panel-resizing{cursor:col-resize;user-select:none}
 html[data-oauth-popup] body>*{display:none!important}
 html[data-oauth-popup] body{display:grid;place-items:center;min-height:100dvh;background:var(--network-bg)}
 html[data-oauth-popup] body::after{content:"Completing sign-in…";color:var(--network-muted);font-family:var(--network-mono);font-size:12px;letter-spacing:.08em}
+
+/* Positioning context for the full-height sidebar resize handle */
+.network-app{position:relative}

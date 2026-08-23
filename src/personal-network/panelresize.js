@@ -18,7 +18,9 @@
 
     var saved = 0;
     try { saved = parseInt(localStorage.getItem(KEY) || "0", 10); } catch (e) {}
-    if (saved >= MIN && saved <= MAX) app.style.setProperty("--intel-w", saved + "px");
+    /* Always define the width explicitly so the column and the handle position
+     * stay in lockstep (the handle sits at left:var(--intel-w)). */
+    app.style.setProperty("--intel-w", (saved >= MIN && saved <= MAX ? saved : DEFAULT) + "px");
 
     var handle = document.createElement("div");
     handle.id = "intel-resize";
@@ -26,7 +28,9 @@
     handle.setAttribute("aria-orientation", "vertical");
     handle.setAttribute("aria-label", "Resize the sidebar — drag, or double-click to reset");
     handle.title = "Drag to resize · double-click to reset";
-    panel.appendChild(handle);
+    /* Append to the grid container (full height) rather than the identity panel,
+     * which is now only the top row of the left column. */
+    app.appendChild(handle);
 
     var dragging = false, raf = 0, pendingW = 0;
     function apply(w) { w = Math.max(MIN, Math.min(MAX, Math.round(w))); app.style.setProperty("--intel-w", w + "px"); return w; }
@@ -38,7 +42,9 @@
       handle.classList.add("is-dragging");
       document.body.classList.add("is-panel-resizing");
       try { handle.setPointerCapture(e.pointerId); } catch (err) {}
-      e.preventDefault();
+      /* No preventDefault here: it suppresses the click/dblclick used for
+       * reset. touch-action:none + the is-panel-resizing user-select guard
+       * already keep the drag clean. */
     });
     handle.addEventListener("pointermove", function (e) {
       if (!dragging) return;

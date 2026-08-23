@@ -530,7 +530,7 @@
     var data = { nodes: new window.vis.DataSet(nodes), edges: new window.vis.DataSet(edges) };
     var firstBuild = !state.network;
     if (firstBuild) {
-      state.network = new window.vis.Network($("#network"), data, { physics: false, autoResize: true, interaction: { hover: true, navigationButtons: false, keyboard: true, zoomView: true, dragView: true, dragNodes: true }, nodes: { borderWidth: 1, chosen: true }, edges: { selectionWidth: 2 }, configure: false });
+      state.network = new window.vis.Network($("#network"), data, { physics: false, autoResize: true, interaction: { hover: true, navigationButtons: false, keyboard: false, zoomView: true, dragView: true, dragNodes: true }, nodes: { borderWidth: 1, chosen: true }, edges: { selectionWidth: 2 }, configure: false });
       state.network.on("click", function (event) {
         var id = event.nodes && event.nodes[0];
         var shift = state.shiftHeld || (event.event && event.event.srcEvent && event.event.srcEvent.shiftKey);
@@ -750,21 +750,30 @@
       return state.snapshot.entities.some(function (e) { return String(e.id) === nid && D.isPerson(e); });
     }).sort(function (a, b) { return personLabel(a).localeCompare(personLabel(b)); });
   }
-  /* Left/right walk the selected person's connections. The anchor (set when a
-   * node is clicked) stays put so you can scan all of one person's links. */
+  /* Every person in the network, label-sorted (ME excluded) — the order the
+   * left/right keys step through. */
+  function allPeopleIds() {
+    if (!state.snapshot) return [];
+    return state.snapshot.entities.filter(D.isPerson).map(function (e) { return String(e.id); })
+      .filter(function (id) { return id !== D.ME_ID; })
+      .sort(function (a, b) { return personLabel(a).localeCompare(personLabel(b)); });
+  }
+  /* With a profile open, left/right flip to the previous/next person (wrapping)
+   * and recentre the graph on them, so you can review the whole network by keyboard. */
   function cycleConnection(dir) {
     if (!state.selectedId) return;
-    var anchor = state.cycleAnchor || state.selectedId;
-    var list = neighboursOf(anchor);
-    if (!list.length) { setText("#sync-status", personLabel(anchor).toUpperCase() + " HAS NO CONNECTIONS"); return; }
-    state.cycleIndex = ((state.cycleIndex + (dir < 0 ? -1 : 1)) % list.length + list.length) % list.length;
-    var target = list[state.cycleIndex];
+    var list = allPeopleIds();
+    if (list.length < 2) return;
+    var cur = list.indexOf(String(state.selectedId));
+    var idx = ((cur < 0 ? 0 : cur) + (dir < 0 ? -1 : 1)) % list.length;
+    if (idx < 0) idx += list.length;
+    var target = list[idx];
     state.selectedId = target;
     clearEdgeSelection(); clearSelectedIds();
     render();
     openDossier(target);
     try { if (state.network) state.network.focus(target, { scale: state.network.getScale(), animation: { duration: 240 } }); } catch (e) {}
-    setText("#sync-status", "CONNECTION " + (state.cycleIndex + 1) + " OF " + list.length + " · " + personLabel(anchor).toUpperCase());
+    setText("#sync-status", "PROFILE " + (idx + 1) + " OF " + list.length + " · " + personLabel(target).toUpperCase());
   }
   function addRelationship(a, b) {
     if (!state.store || !a || !b || String(a) === String(b)) return;
