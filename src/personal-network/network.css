@@ -657,3 +657,8 @@ kbd{padding:2px 6px;border:1px solid var(--network-line);border-radius:var(--net
 .dossier-name[contenteditable]{border-bottom:1px dashed transparent;cursor:text;outline:0}
 .dossier-name[contenteditable]:hover{border-bottom-color:var(--network-line)}
 .dossier-name[contenteditable]:focus{border-bottom-color:var(--network-accent)}
+/* The hover card is several short lines, not one sentence */
+.vis-tooltip{white-space:pre-line!important;font-family:var(--network-font)!important;font-size:11px!important;line-height:1.5!important;background:rgba(20,20,20,.97)!important;border:1px solid var(--network-line)!important;color:var(--network-text)!important;padding:7px 9px!important;box-shadow:0 12px 32px rgba(0,0,0,.5)!important}
+.tag-chip.kind{--tag-colour:var(--network-muted)}
+.tag-chip.kind.active{border-color:var(--network-accent);color:var(--network-text)}
+.tag-bar-split{width:1px;align-self:stretch;margin:2px 3px;background:var(--network-line)}

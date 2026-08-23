@@ -45,9 +45,10 @@
     var organisation = text(input.organisation);
     var emails = (input.emails || []).map(function (e) { return String(e || "").toLowerCase().trim(); }).filter(Boolean);
     var locals = localParts(emails);
-    var details = (input.details || []).filter(function (value) {
-      return Array.isArray(value) ? value.length > 0 : text(value) !== "";
-    });
+    function present(list) {
+      return (list || []).filter(function (value) { return Array.isArray(value) ? value.length > 0 : text(value) !== ""; });
+    }
+    var details = present(input.details), social = present(input.social);
 
     if (locals.some(function (local) { return AUTOMATED_LOCAL.test(local); })) {
       return { skip: "automated address" };
@@ -65,7 +66,10 @@
      * it. A name on its own does not tell you who someone is — the email is the
      * only thing you actually hold, so the record is filed as what it is and
      * drawn as an envelope rather than as a person. */
-    if (emails.length && !details.length) return { category: "email", reason: "Email address only" };
+    /* An account you follow is a social handle, not a person you know. Orbit
+     * says what it actually holds rather than promoting a username to a person. */
+    if (!emails.length && social.length && !details.length) return { category: "social", reason: "Social handle only" };
+    if (emails.length && !details.length && !social.length) return { category: "email", reason: "Email address only" };
     if (name) return { category: "individual", reason: "Personal name" };
     return { category: "email", reason: "Email address only" };
   }
@@ -75,6 +79,7 @@
     organisation: "Organisation",
     "generic-inbox": "Generic inbox",
     email: "Email only",
+    social: "Social handle",
     /* Kept for records classified before "email only" existed. */
     unknown: "Ambiguous"
   };

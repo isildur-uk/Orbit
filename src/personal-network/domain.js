@@ -32,14 +32,22 @@
     var a = attrs(item);
     return lower(item && (item.source || a.source || a.sourceSystem));
   }
-  function stableScore(entity, links) {
+  /* One pass over the links gives every person's degree; pass the result to the
+   * functions below to keep a whole render linear. */
+  function degreeMap(links) {
+    var out = Object.create(null);
+    (links || []).forEach(function (link) {
+      var a = text(link && link.from), b = text(link && link.to);
+      if (a) out[a] = (out[a] || 0) + 1;
+      if (b && b !== a) out[b] = (out[b] || 0) + 1;
+    });
+    return out;
+  }
+  function stableScore(entity, links, degrees) {
     var a = attrs(entity);
     var direct = a.relationshipStrength != null ? a.relationshipStrength : a.strength;
     if (direct != null) return Math.max(0, Math.min(100, number(direct, 50)));
-    var id = text(entity && entity.id);
-    var degree = links.reduce(function (n, link) {
-      return n + (text(link.from) === id || text(link.to) === id ? 1 : 0);
-    }, 0);
+    var degree = relationshipCount(entity && entity.id, links, degrees);
     return Math.max(18, Math.min(82, 18 + degree * 11));
   }
   function ringFor(score) {
@@ -48,7 +56,8 @@
     if (score >= 30) return "outer";
     return "deep";
   }
-  function relationshipCount(id, links) {
+  function relationshipCount(id, links, degrees) {
+    if (degrees) return degrees[text(id)] || 0;
     return links.reduce(function (n, link) {
       return n + (text(link.from) === id || text(link.to) === id ? 1 : 0);
     }, 0);
@@ -150,14 +159,14 @@
     var links = store && typeof store.links === "function" ? store.links() : [];
     return { entities: entities, links: links, stats: stats(entities, links), sources: sourceStatus(entities, links) };
   }
-  function personSummary(entity, links) {
-    var score = stableScore(entity, links);
+  function personSummary(entity, links, degrees) {
+    var score = stableScore(entity, links, degrees);
     var a = attrs(entity);
     return {
       entity: entity,
       score: score,
       ring: ringFor(score),
-      relationships: relationshipCount(entity.id, links),
+      relationships: relationshipCount(entity.id, links, degrees),
       role: text(a.role || a.title || a.company || "Person in your network"),
       evidence: text(entity.source || a.source || "user-entered")
     };
@@ -176,6 +185,7 @@
       personSummary: personSummary,
       ringFor: ringFor,
       stableScore: stableScore,
+      degreeMap: degreeMap,
       shortestPath: shortestPath,
       lastInteractionByPerson: lastInteractionByPerson,
       contactDebt: contactDebt,

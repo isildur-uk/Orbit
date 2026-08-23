@@ -25,7 +25,9 @@
     work: L('<rect x="2" y="7" width="20" height="14" rx="2"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>'),
     /* An address with no name behind it yet — an import that arrived as an
      * email and nothing else. Drawing those as people overstates what is known. */
-    mail: L('<rect x="2" y="4.5" width="20" height="15" rx="2"/><path d="m2.6 6 8.3 6.2a2 2 0 0 0 2.2 0L21.4 6"/>')
+    mail: L('<rect x="2" y="4.5" width="20" height="15" rx="2"/><path d="m2.6 6 8.3 6.2a2 2 0 0 0 2.2 0L21.4 6"/>'),
+    /* A username, not a person: an account handle and nothing more. */
+    social: L('<circle cx="12" cy="12" r="4"/><path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-4 8"/>')
   };
 
   function chip(key, opts) {
@@ -45,12 +47,13 @@
   function defaultKey(entityKind) {
     if (entityKind === "organisation" || entityKind === "generic-inbox") return "organisation";
     if (entityKind === "unknown" || entityKind === "email") return "mail";
+    if (entityKind === "social") return "social";
     return "person";
   }
 
   /* Ordered for the picker: the two defaults first, then override markers. */
-  var CATALOGUE = ["person", "people", "organisation", "mail", "favourite", "family", "home", "work"];
-  var LABELS = { person: "Person", people: "Group", organisation: "Organisation", mail: "Email only", favourite: "Favourite", family: "Family", home: "Home", work: "Work" };
+  var CATALOGUE = ["person", "people", "organisation", "mail", "social", "favourite", "family", "home", "work"];
+  var LABELS = { person: "Person", people: "Group", organisation: "Organisation", mail: "Email only", social: "Social handle", favourite: "Favourite", family: "Family", home: "Home", work: "Work" };
 
   var api = { GLYPHS: GLYPHS, chip: chip, defaultKey: defaultKey, catalogue: CATALOGUE, labels: LABELS, has: function (k) { return Object.prototype.hasOwnProperty.call(GLYPHS, k); } };
   if (typeof module !== "undefined" && module.exports) module.exports = api;

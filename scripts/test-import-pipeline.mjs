@@ -198,17 +198,22 @@ const ig = Importers.review(igPaste, "benwlsn11_IG_Followers");
 const igByHandle = {};
 ig.candidates.forEach((c) => { igByHandle[String(c.instagram).split("/").pop()] = c; });
 eq("one contact per account, not one per line", ig.candidates.length, 10);
-eq("a handle keeps its display name", igByHandle["negeen000"].name, "Negeen Arasteh");
+/* The username leads; the display name is a vanity label the account can
+ * change at will, so it rides along as the preferred name. */
+eq("the username is the name", igByHandle["negeen000"].name, "negeen000");
+eq("the display name rides along", igByHandle["negeen000"].preferredName, "Negeen Arasteh");
 /* The drift this fixes: without the handle test, every account after one with
  * no display name took the next handle as its name. */
 eq("an account with no display name uses its handle", igByHandle["____roseane_"].name, "____roseane_");
-eq("and the account after it is NOT thrown off", igByHandle["kate_tollworthy"].name, "Katie Rose");
-eq("a separator dot is not mistaken for a name", igByHandle["purernbvibes"].name, "Pure RnB");
+eq("a handle-only account is a social handle, not a person", igByHandle["____roseane_"].category, "social");
+eq("and the account after it is NOT thrown off", igByHandle["kate_tollworthy"].preferredName, "Katie Rose");
+eq("a separator dot is not mistaken for a name", igByHandle["purernbvibes"].preferredName, "Pure RnB");
 eq("the avatar alt text is dropped", igByHandle["camm.1927"].name, "camm.1927");
-eq("and the account after the alt text still pairs", igByHandle["iainjwilson"].name, "Iain Wilson");
-eq("a button label is dropped", igByHandle["mob_kitchen"].name, "Mob - delicious, healthy midweek cooking");
-eq("a unicode display name survives", igByHandle["tomwlsn"].name, "tom 𓆈");
-eq("a spaced-out display name survives", igByHandle["belleridene"].name, "B E L L E | R I D E N E");
+eq("an account with no display name has no vanity label", igByHandle["camm.1927"].preferredName, "");
+eq("and the account after the alt text still pairs", igByHandle["iainjwilson"].preferredName, "Iain Wilson");
+eq("a button label is dropped", igByHandle["mob_kitchen"].preferredName, "Mob - delicious, healthy midweek cooking");
+eq("a unicode display name survives", igByHandle["tomwlsn"].preferredName, "tom 𓆈");
+eq("a spaced-out display name survives", igByHandle["belleridene"].preferredName, "B E L L E | R I D E N E");
 /* The handle is the identity, and the direction becomes a follow link rather
  * than a note repeated on every contact. */
 eq("the handle is stored bare", igByHandle["tombrimble_2"].instagram, "tombrimble_2");

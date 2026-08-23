@@ -52,7 +52,9 @@ eq("a handle with underscores survives", I.handleListMeta("liv._.sim_IG_Follower
 const parsed = I.review(FOLLOWERS, "benwlsn11_IG_Followers").candidates;
 eq("each account carries its handle, owner and direction", parsed[0].igHandle + "|" + parsed[0].igOwner + "|" + parsed[0].igDirection, "kate_tollworthy|benwlsn11|follower");
 eq("the handle is stored bare, not as a URL", parsed[0].instagram, "kate_tollworthy");
-eq("the display name is the contact's name", parsed[0].name, "Katie Rose");
+/* The username leads; the display name rides along as the preferred name. */
+eq("the username is the contact's name", parsed[0].name, "kate_tollworthy");
+eq("the display name rides along", parsed[0].preferredName, "Katie Rose");
 
 async function boot() {
   const browser = await puppeteer.launch({ executablePath: CHROME, headless: "new", args: ["--no-sandbox"] });
@@ -112,18 +114,18 @@ follows.forEach((f) => { byPair[[f.from, f.to].sort().join("|")] = f; });
 assert("one link per account, not two", follows.length === TOTAL, JSON.stringify(follows.map((f) => f.from + "->" + f.to + " " + f.label)));
 
 console.log("\n[mutual versus one-way]");
-const kate = byPair[["Katie Rose", "you"].sort().join("|")];
+const kate = byPair[["kate_tollworthy", "you"].sort().join("|")];
 assert("in both lists is a mutual follow", kate && kate.label === "Mutual follow", JSON.stringify(kate));
 assert("and carries both directions", kate && kate.attrs.igFollowsOwner === true && kate.attrs.igOwnerFollows === true, JSON.stringify(kate && kate.attrs));
 
-const negeen = byPair[["Negeen Arasteh", "you"].sort().join("|")];
+const negeen = byPair[["negeen000", "you"].sort().join("|")];
 assert("a follower who is not followed back is one-way", negeen && negeen.label === "Follows", JSON.stringify(negeen));
-eq("and the arrow runs from them to you", negeen && negeen.from + " → " + negeen.to, "Negeen Arasteh → you");
+eq("and the arrow runs from them to you", negeen && negeen.from + " → " + negeen.to, "negeen000 → you");
 assert("recorded as following the owner only", negeen && negeen.attrs.igFollowsOwner === true && !negeen.attrs.igOwnerFollows, JSON.stringify(negeen && negeen.attrs));
 
-const aled = byPair[["Aled Owen", "you"].sort().join("|")];
+const aled = byPair[["aled_owen", "you"].sort().join("|")];
 assert("someone you follow who does not follow back is one-way", aled && aled.label === "Follows", JSON.stringify(aled));
-eq("and the arrow runs from you to them", aled && aled.from + " → " + aled.to, "you → Aled Owen");
+eq("and the arrow runs from you to them", aled && aled.from + " → " + aled.to, "you → aled_owen");
 assert("recorded as followed by the owner only", aled && aled.attrs.igOwnerFollows === true && !aled.attrs.igFollowsOwner, JSON.stringify(aled && aled.attrs));
 
 console.log("\n[the handle is a link]");

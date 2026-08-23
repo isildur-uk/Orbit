@@ -70,8 +70,8 @@
     var verdict = Classify ? Classify.classify({
       name: out.name, organisation: out.organisation, emails: [out.email],
       details: [out.phone, out.phoneOther, out.role, out.organisation, out.location, out.address,
-        out.workAddress, out.website, out.whatsapp, out.signal, out.instagram, out.facebook,
-        out.x, out.birthday, out.interests, out.note, out.socialProfiles]
+        out.workAddress, out.website, out.whatsapp, out.signal, out.birthday, out.interests, out.note],
+      social: [out.instagram, out.facebook, out.x, out.socialProfiles]
     }) : { category: "individual" };
     if (verdict.skip) return { skipped: verdict.skip };
     out.category = verdict.category || "individual";
@@ -339,7 +339,9 @@
       index++;
       /* The handle is stored bare, not as a URL, so the profile chip reads
        * "kate_tollworthy" and still links through to the account. */
-      var built = candidate({ name: display || handle, instagram: handle }, "instagram-import", fileName + ":" + index);
+      /* The username is the name. A display name is a vanity label the account
+       * can change at will, so it rides along as the preferred name instead. */
+      var built = candidate({ name: handle, preferredName: display, instagram: handle }, "instagram-import", fileName + ":" + index);
       if (built && built.candidate) {
         built.candidate.igHandle = handle;
         built.candidate.igOwner = meta.owner;
