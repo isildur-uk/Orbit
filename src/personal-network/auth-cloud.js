@@ -71,12 +71,16 @@
     if (window.ORBIT_AUTH_REDIRECT_URI) return window.ORBIT_AUTH_REDIRECT_URI;
     return window.location.origin + window.location.pathname;
   }
+  /* Orbit's button names map to Supabase provider keys. LinkedIn's key is
+   * "linkedin_oidc" (Sign In with LinkedIn using OpenID Connect). */
+  var PROVIDER_KEYS = { google: "google", apple: "apple", facebook: "facebook", linkedin: "linkedin_oidc", linkedin_oidc: "linkedin_oidc" };
   function signInWithProvider(provider, input) {
     provider = String(provider || "").toLowerCase();
     input = input || {};
-    if (["google", "apple", "facebook"].indexOf(provider) === -1) return Promise.reject(new Error("That sign-in provider is not enabled for Orbit."));
+    var providerKey = PROVIDER_KEYS[provider];
+    if (!providerKey) return Promise.reject(new Error("That sign-in provider is not enabled for Orbit."));
     return requireClient().then(function (supabaseClient) {
-      return supabaseClient.auth.signInWithOAuth({ provider: provider, options: { redirectTo: redirectTo(), scopes: input.scopes || undefined, queryParams: provider === "google" ? { access_type: "offline", prompt: "consent" } : undefined } });
+      return supabaseClient.auth.signInWithOAuth({ provider: providerKey, options: { redirectTo: redirectTo(), scopes: input.scopes || undefined, queryParams: provider === "google" ? { access_type: "offline", prompt: "consent" } : undefined } });
     }).then(function (result) { if (result.error) throw authError(result.error); return result.data; });
   }
   function beginConnection(provider) {

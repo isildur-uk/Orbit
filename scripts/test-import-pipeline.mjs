@@ -102,6 +102,60 @@ eq("the selected row is Alex Morgan", willMerge[0].name, "Alex Morgan");
 const remapped = review.candidates.map((c, i) => (matches[i] && matches[i].target ? matches[i].target.label : c.name));
 eq("approved phone-duplicate enriches existing profile (name remap)", remapped[review.candidates.indexOf(byName["Sarah J"])], "Sarah Jones");
 
+console.log("\n[6] LinkedIn CSV export (preamble + First/Last Name + Email Address)");
+const linkedin = [
+  "Notes:",
+  '"When exporting your connection data, you may notice that some of the email addresses are missing."',
+  "",
+  "First Name,Last Name,URL,Email Address,Company,Position,Connected On",
+  "Dana,Whitfield,https://www.linkedin.com/in/danaw,dana.whitfield@northwind.io,Northwind,Head of Product,14 Mar 2023",
+  "Marcus, True,https://www.linkedin.com/in/marcustrue,,Helix Labs,Engineer,02 Jan 2024"
+].join("\n");
+const li = Importers.review(linkedin, "Connections.csv");
+eq("LinkedIn preamble skipped; both rows parsed", li.candidates.length, 2);
+const liByName = {};
+li.candidates.forEach((c) => { liByName[c.name] = c; });
+assert("First + Last name combined", !!liByName["Dana Whitfield"]);
+eq("Email Address column mapped", liByName["Dana Whitfield"] && liByName["Dana Whitfield"].email, "dana.whitfield@northwind.io");
+eq("Company mapped to organisation", liByName["Dana Whitfield"] && liByName["Dana Whitfield"].organisation, "Northwind");
+eq("Position mapped to role", liByName["Dana Whitfield"] && liByName["Dana Whitfield"].role, "Head of Product");
+assert("connection with no shared email still imports", !!liByName["Marcus True"]);
+
+console.log("\n[7] Facebook / Instagram JSON exports");
+const fb = JSON.stringify({ friends_v2: [
+  { name: "Rowan Ellis", timestamp: 1600000000 },
+  { name: "Priti Shah", timestamp: 1610000000 }
+] });
+const fbReview = Importers.review(fb, "your_friends.json");
+eq("Facebook friends parsed by name", fbReview.candidates.length, 2);
+assert("Facebook friend note tagged", fbReview.candidates.every((c) => /Facebook friend/.test(String(c.note))));
+
+const igFollowers = JSON.stringify([
+  { string_list_data: [{ href: "https://www.instagram.com/coolcat", value: "coolcat", timestamp: 1600000000 }] },
+  { string_list_data: [{ href: "https://www.instagram.com/traveljen", value: "traveljen", timestamp: 1600000001 }] }
+]);
+const igReview = Importers.review(igFollowers, "followers_1.json");
+eq("Instagram followers (bare array) parsed", igReview.candidates.length, 2);
+eq("Instagram handle becomes the name", igReview.candidates[0].name, "coolcat");
+eq("Instagram profile URL captured", igReview.candidates[0].instagram, "https://www.instagram.com/coolcat");
+
+const igFollowing = JSON.stringify({ relationships_following: [
+  { string_list_data: [{ href: "https://www.instagram.com/mate", value: "mate" }] }
+] });
+const igfReview = Importers.review(igFollowing, "following.json");
+eq("Instagram following (keyed) parsed", igfReview.candidates.length, 1);
+
+console.log("\n[8] Generic JSON array still filters automated addresses");
+const generic = JSON.stringify([
+  { name: "Real Person", email: "real@example.com" },
+  { name: "", email: "noreply@corp.com" },
+  { name: "Ops Team", email: "info@corp.com" }
+]);
+const genReview = Importers.review(generic, "contacts.json");
+assert("noreply record filtered out of JSON too", !genReview.candidates.some((c) => /noreply/.test(String(c.email))));
+eq("one automated record reported skipped", genReview.skippedCount, 1);
+assert("real person survives JSON import", genReview.candidates.some((c) => c.name === "Real Person"));
+
 console.log("\n----------------------------------------");
 console.log("  " + passed + " passed, " + failed + " failed");
 console.log("----------------------------------------\n");

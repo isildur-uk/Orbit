@@ -244,7 +244,96 @@ Large interaction/visual batch (built and APK-rebuilt):
 - Test suites: 73 assertions across 7 files (import, boot, charting-menu,
   icons-delete, relationship-types, history-photo, touch-linking), all passing.
 
+## Batch — file-drop importer for social exports
+
+Facebook, Instagram and WhatsApp have no usable contacts API for a personal tool
+(Meta closed friend/follower access post-2018; WhatsApp only reads the phone's
+address book). So the honest route is their **data-export files**, read locally.
+
+- **JSON parsing** added to `importers.js` (`json()`): Meta "Download Your
+  Information" exports — Facebook `friends_v2`/`friends`, Instagram
+  `relationships_following`/`followers` and bare follower arrays — plus generic
+  contact arrays/objects. Routed from `review()` by `.json` extension or a
+  `[`/`{` content sniff; Orbit's own vault import stays on its separate path.
+- **LinkedIn CSV** now parses correctly: `csv()` locates the real header row past
+  the export preamble ("Notes:" block), combines **First Name + Last Name**, and
+  maps **Email Address** — the one export that carries emails.
+- **Connected accounts** reworked: Facebook/Instagram dead-end "Set up" buttons
+  become **export → import** cards with in-app instructions; new **LinkedIn** and
+  **WhatsApp/phone (vCard)** cards. Google (live) and Apple (native, later) kept.
+- **Drag-and-drop anywhere**: `wireFileDrop()` + `#drop-overlay`; only recognised
+  contact formats (.csv/.vcf/.json/.ics/.txt) are read, others ignored. `#contact-file`
+  accept widened to include JSON. Every path still passes through the review screen.
+- All imports reuse the existing filter→classify→dedupe pipeline. Import-pipeline
+  suite extended to **51 assertions** (added LinkedIn-CSV, Facebook/Instagram JSON,
+  generic-JSON automated-address filtering); boot smoke still 7/7.
+
+## Batch — layout switcher (SOLAR parity)
+
+"Peacock" was a SOLAR *layout*, not a background theme. SOLAR offers its
+arrangements through one segmented `applyLayout(kind)` control; Orbit only had
+its custom ring layout ("orbit") + "free". Added the rest.
+
+- **`layouts.js`** (new, testable module like classify/matching): ports SOLAR's
+  positioning maths — **peacock** + **compact** (radial hub-and-spoke fans),
+  **force** (barnesHut physics), **hierarchy/Tree** (BFS spanning forest, parents
+  centred over children), **grouped** (per-kind sub-circles on a ring),
+  **circle**, **grid**. Each returns `{positions, physics}`; orbit/free stay
+  app-owned (compute returns null).
+- **`renderGraph` integration**: when a computed layout is active it builds a
+  node/link list (ME + visible people, grouped by entityKind), computes positions
+  once, and pins every node (physics off). **Force** enables barnesHut only until
+  `stabilizationIterationsDone`, then freezes and captures positions so selecting/
+  editing never re-shuffles. Orbit rings only draw in the orbit layout.
+- **UI**: a labelled **Layout** button in the graph-tools bar opens a picker
+  (name + one-line tip per option), and both background/ME context menus now open
+  it via "Layout: <current> ▸". Choice persists (`orbit_layout`).
+- **Bug caught by screenshot verification**: `.drop-overlay{display:flex}`
+  overrode the `[hidden]` attribute (class beats the UA rule), so the import
+  overlay covered the whole app permanently. Fixed with `.drop-overlay[hidden]{display:none}`.
+- Tests: new `test-layouts.mjs` (**39** maths assertions) + `test-layouts-render.mjs`
+  (**22** real-canvas puppeteer assertions: every layout activates, moves nodes off
+  the rings, finite coords, force settles, orbit re-centres ME, no errors).
+  `npm test` now runs import(51) + layouts(39) + boot(7).
+
+## Batch — graph interactions + social sign-in
+
+Four interaction/auth changes:
+
+- **Drag-to-re-pin** (`applyNodeDrop`): ring-pinned and position-pinned people are
+  now draggable (`fixed:false`; physics stays off so they hold). In the orbit
+  layout a drop snaps to the nearest ring band and pins there (taking the ring
+  colour), keeping the angle it was dragged to (`state.ringAngle`); dropping past
+  the outer ring (r>640) unpins. Unpin deletes the `ring` attr directly (the store
+  ignores blank attrs, so `ring:""` wouldn't clear it — mirrors `clearRing`).
+- **Arrow-key cycling** (`cycleConnection`/`neighboursOf`): with a person selected,
+  ←/→ walk that person's connections (label-sorted, wrapping). The anchor is set on
+  node click, so you scan one person's links without the anchor drifting; guarded
+  against firing while typing in a field.
+- **Relationship-type picker on draw** (`showRelTypePicker`): completing a link
+  (`addRelationship` now returns the link id) immediately opens a type picker
+  (Friend/Family/Partner/Colleague/Acquaintance/Knows/Custom) at the cursor;
+  dismissing leaves the link unlabelled.
+- **FB + LinkedIn sign-in** (login/identity, NOT contact import — Meta/LinkedIn
+  expose no friend/connection API): `auth-cloud.js` maps button names to Supabase
+  provider keys (`linkedin` → `linkedin_oidc`); the login screen now offers Google,
+  LinkedIn, Facebook, Apple (2×2 grid). Contacts for these still come from the
+  file-drop importer. Requires the user to configure a Meta app + LinkedIn app in
+  the Supabase dashboard (same as the Google setup), with Orbit's redirect URLs.
+- **Bug fixed**: unpin via drag initially set `ring:""` which the store dropped as
+  a blank attr, so the person stayed pinned — now deletes the attr.
+- Tests: new `test-interactions.mjs` (**16** real-canvas assertions: ring snap for
+  all four bands + unpin + persistence; ←/→ cycling incl. wrap/leaf; picker opens
+  on draw and labels the link). QA hooks added: `__ORBIT_DRAGTO__`, `__ORBIT_RING__`,
+  `__ORBIT_CYCLE__`, and `__ORBIT_SELECT__` now anchors the cycle.
+
 ## Next
+
+1. Replace the local vault adapter with an encrypted sync repository while preserving offline-first edits.
+2. Extend interaction/fact capture with approved social-source adapters.
+3. Add opportunity candidate detectors, beginning with introductions and dormant relationships.
+4. Initialize the Tauri Android/iOS targets, then add native builds and signed store submissions.
+5. Optional SOLAR extras not yet ported: Packed and Theme (time-lane) layouts; orthogonal edge bends for Tree/Grid.
 
 1. Replace the local vault adapter with an encrypted sync repository while preserving offline-first edits.
 2. Extend interaction/fact capture with approved social-source adapters.

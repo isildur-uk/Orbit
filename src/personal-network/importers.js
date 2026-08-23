@@ -100,29 +100,40 @@
     if (value || row.length) { row.push(value); if (row.some(function (cell) { return text(cell); })) rows.push(row); }
     return rows;
   }
+  /* LinkedIn (and some other) exports carry a preamble before the header row and
+   * split the name across First/Last Name, so we locate the real header row
+   * rather than assuming row 0. */
+  function looksLikeHeaderRow(row) {
+    return row.map(key).some(function (h) { return /^(firstname|lastname|fullname|displayname|contactname|name|emailaddress|email|phone|mobile|tel|telephone)$/.test(h); });
+  }
   function csv(textValue, fileName) {
     var rows = splitCSV(textValue), out = [];
     if (!rows.length) return collect(out);
-    var headers = rows[0].map(key), known = headers.some(function (h) { return /name|email|phone|tel|mobile/.test(h); });
-    if (!known) { headers = rows[0].map(function (_, i) { return i === 0 ? "name" : "value" + i; }); rows.unshift(headers); }
-    rows.slice(1).forEach(function (row, index) {
+    var headerIndex = -1;
+    for (var r = 0; r < rows.length && r < 8; r++) { if (looksLikeHeaderRow(rows[r])) { headerIndex = r; break; } }
+    var headers, dataRows, base;
+    if (headerIndex === -1) { headers = rows[0].map(function (_, i) { return i === 0 ? "name" : "value" + i; }); dataRows = rows; base = 1; }
+    else { headers = rows[headerIndex].map(key); dataRows = rows.slice(headerIndex + 1); base = headerIndex + 2; }
+    dataRows.forEach(function (row, index) {
       var raw = {};
       headers.forEach(function (header, i) { raw[header] = text(row[i]); });
-      var aliases = {};
+      var aliases = {}, firstName = "", lastName = "";
       Object.keys(raw).forEach(function (header) { var value = raw[header]; if (!value) return;
         if (/^(name|fullname|displayname|contactname)$/.test(header)) aliases.name = value;
+        else if (/^firstname$/.test(header)) firstName = value;
+        else if (/^lastname$/.test(header)) lastName = value;
         else if (/^(preferredname|nickname)$/.test(header)) aliases.preferredName = value;
         else if (/^(role|title|jobtitle|position)$/.test(header)) aliases.role = value;
         else if (/^(organisation|organization|company|companyname|org)$/.test(header)) aliases.organisation = value;
         else if (/^(location|city|town|address)$/.test(header)) { aliases.location = value; if (header === "address") aliases.address = value; }
-        else if (/^e?mail\d*$/.test(header)) aliases.email = aliases.email ? aliases.email + ", " + value : value;
+        else if (/^e?mail(address)?\d*$/.test(header)) aliases.email = aliases.email ? aliases.email + ", " + value : value;
         else if (/^(phone|telephone|tel|mobile|mobilephone)\d*$/.test(header)) aliases.phone = aliases.phone ? aliases.phone + ", " + value : value;
         else if (/^(otherphone|phone2|mobile2)$/.test(header)) aliases.phoneOther = value;
         else if (/whatsapp/.test(header)) aliases.whatsapp = value;
         else if (/signal/.test(header)) aliases.signal = value;
         else if (/instagram/.test(header)) aliases.instagram = value;
         else if (/facebook/.test(header)) aliases.facebook = value;
-        else if (/^(website|url|web)$/.test(header)) aliases.website = value;
+        else if (/^(website|url|web|profile)$/.test(header)) aliases.website = value;
         else if (/^(x|twitter|twitterhandle)$/.test(header)) aliases.x = value;
         else if (/^(homeaddress|streetaddress)$/.test(header)) aliases.address = value;
         else if (/^(workaddress|officeaddress)$/.test(header)) aliases.workAddress = value;
@@ -131,7 +142,8 @@
         else if (/^(social|socialprofiles|profiles)$/.test(header)) aliases.socialProfiles = value;
         else if (/^(note|notes|memo|description)$/.test(header)) aliases.note = value;
       });
-      out.push(candidate(aliases, "csv-import", fileName + ":" + (index + 2)));
+      if (!aliases.name && (firstName || lastName)) aliases.name = [firstName, lastName].filter(Boolean).join(" ");
+      out.push(candidate(aliases, "csv-import", fileName + ":" + (base + index)));
     });
     return collect(out);
   }
@@ -192,6 +204,66 @@
     });
     return out;
   }
+  /* Instagram exports list each account as a string_list_data entry whose
+   * `value` is the handle and `href` is the profile URL. */
+  function instagramProfile(item) {
+    var entry = item && item.string_list_data && item.string_list_data[0];
+    if (!entry) return null;
+    var handle = text(entry.value), href = text(entry.href);
+    if (!handle && href) handle = href.replace(/^https?:\/\/(www\.)?instagram\.com\//i, "").replace(/\/+$/, "");
+    if (!handle) return null;
+    return { name: handle, instagram: href || ("https://instagram.com/" + handle) };
+  }
+  function jsonItem(item, note, sourceType, fileName, index) {
+    var ref = fileName + ":" + (index + 1);
+    if (item == null) return null;
+    if (typeof item === "string") { var s = text(item); return s ? candidate({ name: s, note: note }, sourceType, ref) : null; }
+    if (typeof item !== "object") return null;
+    if (item.string_list_data) {
+      var ig = instagramProfile(item); if (!ig) return null;
+      if (note) ig.note = note;
+      return candidate(ig, "instagram-import", ref);
+    }
+    var raw = {
+      name: first([item.name, item.fullName, item.fullname, item.fn, item.displayName, item.title]),
+      email: first([item.email, item.emailAddress, item.email_address]),
+      phone: first([item.phone, item.phoneNumber, item.phone_number, item.tel, item.mobile]),
+      organisation: first([item.organisation, item.organization, item.company, item.org]),
+      role: first([item.role, item.jobTitle, item.job_title, item.position]),
+      facebook: text(item.facebook),
+      instagram: text(item.instagram),
+      note: note
+    };
+    if (!raw.name && !raw.email) return null;
+    return candidate(raw, sourceType, ref);
+  }
+  /* Parses contact-shaped JSON: Meta "Download Your Information" exports
+   * (Facebook friends, Instagram followers/following) and generic arrays or
+   * objects of contact records. Orbit's own vault files use a separate importer. */
+  function json(textValue, fileName) {
+    var out = [], data;
+    try { data = JSON.parse(text(textValue)); } catch (e) { return collect(out); }
+    fileName = fileName || "export.json";
+    var notes = {
+      friends_v2: ["Facebook friend", "facebook-import"], friends: ["Facebook friend", "facebook-import"],
+      relationships_following: ["Instagram · following", "instagram-import"], following: ["Instagram · following", "instagram-import"],
+      relationships_followers: ["Instagram · follower", "instagram-import"], followers: ["Instagram · follower", "instagram-import"],
+      relationships_close_friends: ["Instagram · close friend", "instagram-import"], close_friends: ["Instagram · close friend", "instagram-import"]
+    };
+    function run(arr, note, sourceType) { (arr || []).forEach(function (item, i) { out.push(jsonItem(item, note, sourceType, fileName, i)); }); }
+    if (Array.isArray(data)) run(data, "", "json-import");
+    else if (data && typeof data === "object") {
+      var handled = false;
+      Object.keys(data).forEach(function (k) {
+        if (!Array.isArray(data[k])) return;
+        handled = true;
+        var meta = notes[k] || ["", "json-import"];
+        run(data[k], meta[0], meta[1]);
+      });
+      if (!handled && (text(data.name) || text(data.email))) out.push(jsonItem(data, "", "json-import", fileName, 0));
+    }
+    return collect(out);
+  }
   /* review() is the primary entry point: it returns { candidates, skippedCount }
    * so the review screen can report how many automated/incomplete records were
    * filtered. Calendar files carry events, which are never filtered. */
@@ -199,11 +271,13 @@
     var name = lower(fileName), value = text(input);
     if (/\.vcf$|vcard/.test(name) || /BEGIN:VCARD/i.test(value)) return vcard(value, fileName || "contacts.vcf");
     if (/\.ics$|ical|calendar/.test(name) || /BEGIN:VEVENT/i.test(value)) { var events = calendar(value, fileName || "calendar.ics"); return { candidates: events, skippedCount: 0 }; }
+    if (/\.json$/.test(name)) return json(value, fileName || "export.json");
+    if (/^\s*[\[{]/.test(value)) { var parsed = json(value, fileName || "export.json"); if (parsed.candidates.length) return parsed; }
     return csv(value, fileName || "contacts.csv");
   }
   /* parse() keeps its original array contract for any existing caller/test. */
   function parse(input, fileName) { return review(input, fileName).candidates; }
-  var api = { parse: parse, review: review, csv: csv, vcard: vcard, calendar: calendar };
+  var api = { parse: parse, review: review, csv: csv, vcard: vcard, calendar: calendar, json: json };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   if (root) root.OrbitNetworkImporters = api;
 })(typeof window !== "undefined" ? window : globalThis);

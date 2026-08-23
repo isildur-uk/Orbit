@@ -80,8 +80,9 @@
         <div class="auth-divider"><span>OR CONTINUE WITH</span></div>
         <div class="auth-social" aria-label="Social sign in">
           <button class="toolbar-button auth-social-button" type="button" data-auth-provider="google">Google</button>
-          <button class="toolbar-button auth-social-button" type="button" data-auth-provider="apple">Apple</button>
+          <button class="toolbar-button auth-social-button" type="button" data-auth-provider="linkedin">LinkedIn</button>
           <button class="toolbar-button auth-social-button" type="button" data-auth-provider="facebook">Facebook</button>
+          <button class="toolbar-button auth-social-button" type="button" data-auth-provider="apple">Apple</button>
         </div>
         <p id="auth-status" class="auth-status" role="status" aria-live="polite"></p>
       </div>
@@ -175,6 +176,10 @@
           <button type="button" class="graph-tool icon-only" data-action="theme" title="Chart background" aria-label="Chart background">
             <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M8 1.5a6.5 6.5 0 1 0 0 13c1 0 1.5-.7 1.5-1.5 0-.9-.8-1.3-.8-2.1 0-.6.5-1.1 1.2-1.1H12A2.5 2.5 0 0 0 14.5 7 6.6 6.6 0 0 0 8 1.5Z" fill="none" stroke="currentColor" stroke-width="1.3"/><circle cx="5" cy="6.5" r="1" fill="currentColor"/><circle cx="8" cy="5" r="1" fill="currentColor"/><circle cx="11" cy="6.5" r="1" fill="currentColor"/></svg>
           </button>
+          <button type="button" class="graph-tool has-label" data-action="layout" title="Change chart layout" aria-label="Change chart layout">
+            <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><circle cx="8" cy="8" r="1.6" fill="currentColor"/><circle cx="3" cy="3" r="1.4" fill="currentColor"/><circle cx="13" cy="3" r="1.4" fill="currentColor"/><circle cx="3" cy="13" r="1.4" fill="currentColor"/><circle cx="13" cy="13" r="1.4" fill="currentColor"/><path d="M8 8L3.4 3.4M8 8l4.6-4.6M8 8l-4.6 4.6M8 8l4.6 4.6" stroke="currentColor" stroke-width="1" opacity=".65"/></svg>
+            <span id="layout-tool-label" class="graph-tool-label">Orbit rings</span>
+          </button>
           <span class="graph-tools-hint">Right-click (or long-press) a person to link, edit or photo · the chart to add someone</span>
         </div>
         <div id="rubber-band" class="rubber-band" aria-hidden="true"></div>
@@ -200,7 +205,7 @@
         <button type="button" class="mobile-nav-item" data-mobile-view="profile" aria-label="Open selected profile">Profile</button>
         <button type="button" class="mobile-nav-item capture" data-action="mobile-capture" aria-label="Capture a note or interaction">Capture</button>
       </nav>
-      <input id="contact-file" type="file" accept=".csv,.vcf,text/csv,text/vcard,text/x-vcard" hidden>
+      <input id="contact-file" type="file" accept=".csv,.vcf,.json,.txt,text/csv,text/vcard,text/x-vcard,application/json" hidden>
       <input id="calendar-file" type="file" accept=".ics,text/calendar" hidden>
     </main>
 
@@ -367,33 +372,51 @@
         <div><div class="section-kicker">ACCOUNT LINKS</div><h2 id="connections-modal-title">Connected accounts</h2></div>
         <button class="dossier-close" type="button" data-action="close-connections" aria-label="Close"><svg class="close-icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M4 4l8 8M12 4l-8 8" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></button>
       </div>
-      <p class="connections-intro">Give Orbit access one source at a time. Passwords never enter Orbit, and nothing is merged into your network without review.</p>
+      <p class="connections-intro">Give Orbit access one source at a time. Passwords never enter Orbit, and nothing is merged into your network without review. Where a platform blocks live import, drop its data-export file below and Orbit reads it locally.</p>
       <div class="connection-list" role="list">
         <article class="connection-card" data-provider-card="google" role="listitem">
-          <div class="connection-card-top"><div><span class="connection-provider">GOOGLE</span><h3>Google Contacts</h3></div><span class="connection-status" data-connection-status="google">NOT CONNECTED</span></div>
-          <p>Bring people and organisations into Orbit’s review queue. Automated addresses such as noreply and notification accounts are filtered first.</p>
+          <div class="connection-card-top"><div><span class="connection-provider">GOOGLE · LIVE</span><h3>Google Contacts</h3></div><span class="connection-status" data-connection-status="google">NOT CONNECTED</span></div>
+          <p>Connect once to bring people and organisations into Orbit’s review queue. Automated addresses such as noreply and notification accounts are filtered first.</p>
           <div class="connection-card-bottom"><small data-connection-meta="google">Needs OAuth setup</small><button class="toolbar-button primary" type="button" data-connect-provider="google">Connect Google</button></div>
         </article>
-        <article class="connection-card" data-provider-card="facebook" role="listitem">
-          <div class="connection-card-top"><div><span class="connection-provider">META</span><h3>Facebook</h3></div><span class="connection-status" data-connection-status="facebook">NOT CONNECTED</span></div>
-          <p>Link an allowed Facebook profile identity. Meta decides which profile data is available to the app.</p>
-          <div class="connection-card-bottom"><small data-connection-meta="facebook">Needs Meta app setup</small><button class="toolbar-button" type="button" data-connect-provider="facebook">Set up Facebook</button></div>
+        <article class="connection-card import-card" data-provider-card="linkedin" role="listitem">
+          <div class="connection-card-top"><div><span class="connection-provider">LINKEDIN · EXPORT</span><h3>LinkedIn connections</h3></div></div>
+          <p>The one export that carries email addresses. On LinkedIn: <strong>Settings → Data privacy → Get a copy of your data → Connections</strong>. You’ll be emailed a CSV of names, emails (where shared), company and role. Import it here.</p>
+          <div class="connection-card-bottom"><small>Names · emails · company · role</small><button class="toolbar-button primary" type="button" data-import-provider="linkedin">Import LinkedIn CSV</button></div>
         </article>
-        <article class="connection-card" data-provider-card="instagram" role="listitem">
-          <div class="connection-card-top"><div><span class="connection-provider">META</span><h3>Instagram</h3></div><span class="connection-status" data-connection-status="instagram">NOT CONNECTED</span></div>
-          <p>Link an eligible professional Instagram account through Meta’s approved API flow.</p>
-          <div class="connection-card-bottom"><small data-connection-meta="instagram">Needs Meta app setup</small><button class="toolbar-button" type="button" data-connect-provider="instagram">Set up Instagram</button></div>
+        <article class="connection-card import-card" data-provider-card="facebook" role="listitem">
+          <div class="connection-card-top"><div><span class="connection-provider">META · EXPORT</span><h3>Facebook friends</h3></div></div>
+          <p>Meta blocks contact import through any API. Export instead: <strong>Settings → Your information → Download your information → Friends and followers</strong>, format <strong>JSON</strong>. Drop the file here — names only, no emails or numbers.</p>
+          <div class="connection-card-bottom"><small>Friend names only</small><button class="toolbar-button" type="button" data-import-provider="facebook">Import Facebook export</button></div>
+        </article>
+        <article class="connection-card import-card" data-provider-card="instagram" role="listitem">
+          <div class="connection-card-top"><div><span class="connection-provider">META · EXPORT</span><h3>Instagram</h3></div></div>
+          <p>No live import here either. <strong>Accounts Centre → Your information and permissions → Download your information</strong>, format <strong>JSON</strong>. Import your followers or following file — usernames only.</p>
+          <div class="connection-card-bottom"><small>Usernames only</small><button class="toolbar-button" type="button" data-import-provider="instagram">Import Instagram export</button></div>
+        </article>
+        <article class="connection-card import-card" data-provider-card="whatsapp" role="listitem">
+          <div class="connection-card-top"><div><span class="connection-provider">DEVICE · EXPORT</span><h3>WhatsApp &amp; phone</h3></div></div>
+          <p>WhatsApp uses your phone’s address book, so there is nothing separate to connect. Export your phone contacts as a <strong>vCard (.vcf)</strong> — Google Contacts, iPhone or Android all do this — and import the file.</p>
+          <div class="connection-card-bottom"><small>Phone numbers · names</small><button class="toolbar-button" type="button" data-import-provider="whatsapp">Import contacts file</button></div>
         </article>
         <article class="connection-card" data-provider-card="apple" role="listitem">
-          <div class="connection-card-top"><div><span class="connection-provider">APPLE</span><h3>Sign in with Apple</h3></div><span class="connection-status" data-connection-status="apple">NOT CONNECTED</span></div>
+          <div class="connection-card-top"><div><span class="connection-provider">APPLE · LIVE</span><h3>Sign in with Apple</h3></div><span class="connection-status" data-connection-status="apple">NOT CONNECTED</span></div>
           <p>Reserved for the native iPhone app, so Orbit can offer a privacy-forward account connection.</p>
           <div class="connection-card-bottom"><small data-connection-meta="apple">Native app setup later</small><button class="toolbar-button" type="button" data-connect-provider="apple">View setup</button></div>
         </article>
       </div>
       <p id="connections-status" class="auth-status" role="status" aria-live="polite"></p>
-      <p class="form-note">Local imports remain available from the Import button while provider connections are being configured. Imported records always pass through review first.</p>
+      <p class="form-note">Every import — live or from a file — passes through the review screen before anything is merged. Accepts .csv, .vcf, and .json (Facebook / Instagram exports). You can also drag a file anywhere onto Orbit.</p>
       <div class="modal-actions"><button class="toolbar-button" type="button" data-action="close-connections">Done</button></div>
     </section>
+  </div>
+
+  <div id="drop-overlay" class="drop-overlay" hidden aria-hidden="true">
+    <div class="drop-overlay-card">
+      <svg viewBox="0 0 24 24" width="30" height="30" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 15V3m0 0l-4 4m4-4l4 4"/><path d="M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4"/></svg>
+      <strong>Drop to import</strong>
+      <span>.csv · .vcf · .json — reviewed before anything is added</span>
+    </div>
   </div>
 
   <script>window.ORBIT_SURFACE = "personal";</script>
@@ -408,6 +431,7 @@
   <script src="classify.js?v=20260822-classify-pass"></script>
   <script src="matching.js?v=20260822-matching-pass"></script>
   <script src="icons.js?v=20260822-icons-pass"></script>
+  <script src="layouts.js?v=20260823-layouts"></script>
   <script src="google-contacts.js?v=20260822-google-contacts-2"></script>
   <script src="domain.js?v=20260822-contact-profile-pass"></script>
   <script src="importers.js?v=20260822-classify-pass"></script>
