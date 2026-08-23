@@ -770,9 +770,8 @@
     var target = list[idx];
     state.selectedId = target;
     clearEdgeSelection(); clearSelectedIds();
-    render();
-    openDossier(target);
-    try { if (state.network) state.network.focus(target, { scale: state.network.getScale(), animation: { duration: 240 } }); } catch (e) {}
+    render();               /* highlights the person's node in place */
+    openDossier(target);    /* no camera move — cycling drives the profile, not the graph view */
     setText("#sync-status", "PROFILE " + (idx + 1) + " OF " + list.length + " · " + personLabel(target).toUpperCase());
   }
   function addRelationship(a, b) {
