@@ -652,3 +652,8 @@ kbd{padding:2px 6px;border:1px solid var(--network-line);border-radius:var(--net
 
 .import-cat-email .import-row-tag{color:#b6c6cf}
 .shortcuts-body{max-height:min(60vh,540px);overflow:auto;padding-right:4px}
+
+/* The profile name is the rename field */
+.dossier-name[contenteditable]{border-bottom:1px dashed transparent;cursor:text;outline:0}
+.dossier-name[contenteditable]:hover{border-bottom-color:var(--network-line)}
+.dossier-name[contenteditable]:focus{border-bottom-color:var(--network-accent)}

@@ -251,10 +251,14 @@
   function contactKindLabel(kind) {
     return ({ email: "Email", phone: "Phone", phoneOther: "Other phone", whatsapp: "WhatsApp", signal: "Signal", facebook: "Facebook", instagram: "Instagram", x: "X", tiktok: "TikTok", website: "Website", social: "Social" })[kind] || String(kind || "Contact");
   }
+  /* A handle on its own is the useful thing to read; the address it lives at is
+   * the useful thing to click. */
+  var SOCIAL_HOME = { instagram: "https://instagram.com/", x: "https://x.com/", facebook: "https://facebook.com/", tiktok: "https://tiktok.com/@" };
   function contactHref(item) {
     var value = String(item && item.value || "").trim(), kind = String(item && item.kind || "");
     if (item && item.url && /^https?:\/\//i.test(item.url)) return item.url;
     if (/^https?:\/\//i.test(value)) return value;
+    if (SOCIAL_HOME[kind] && /^@?[A-Za-z0-9._-]{1,40}$/.test(value)) return SOCIAL_HOME[kind] + value.replace(/^@/, "");
     if (kind === "email" && value) return "mailto:" + value.split(/[,; ]/)[0];
     if ((kind === "phone" || kind === "phoneOther" || kind === "whatsapp" || kind === "signal") && /^[+0-9 ()\-\.]+$/.test(value)) return "tel:" + value.replace(/[^+0-9]/g, "");
     return "";
@@ -639,10 +643,16 @@
       var from = normaliseId(link.from), to = normaliseId(link.to);
       var touchesMe = from === D.ME_ID || to === D.ME_ID;
       var colour = opportunity ? "rgba(218,41,28,.9)" : (touchesMe ? "rgba(255,255,255,.36)" : "rgba(255,255,255,.2)");
-      var relType = String(D.attrs(link).relationshipType || "");
+      var follows = isFollowLink(link), followLabel = follows ? igFollowLabel(link) : "";
+      var mutual = followLabel === "Mutual follow";
+      var relType = String(D.attrs(link).relationshipType || "") || followLabel;
       var onPath = pathSet && pathSet[from] && pathSet[to] && Math.abs(state.path.ids.indexOf(from) - state.path.ids.indexOf(to)) === 1;
       var onSelection = pathSet ? !!onPath : (!hasSelection || from === String(state.selectedId) || to === String(state.selectedId) || !!state.selectedIds[from] || !!state.selectedIds[to]);
-      return { id: String(link.id), from: from, to: to, label: relType || undefined, width: onPath ? 3 : (onSelection && hasSelection ? 2.2 : (opportunity ? 2.6 : (touchesMe ? 1.3 : 1.1))), dashes: false, color: { color: onPath ? "rgba(255,255,255,.92)" : colour, highlight: opportunity ? "#da291c" : "#ffffff", hover: "#ffffff", opacity: onSelection ? 1 : 0.18 }, font: relType ? { color: "#cfcfcf", size: 10, face: "Inter Var", strokeWidth: 4, strokeColor: "#181818", align: "middle" } : undefined, smooth: { enabled: true, type: "continuous", roundness: .28 }, hidden: false };
+      /* One arrowhead when the follow runs one way, two when it is mutual. */
+      var arrows = follows ? (mutual
+        ? { to: { enabled: true, scaleFactor: 0.45 }, from: { enabled: true, scaleFactor: 0.45 } }
+        : { to: { enabled: true, scaleFactor: 0.55 } }) : undefined;
+      return { id: String(link.id), from: from, to: to, label: relType || undefined, arrows: arrows, width: onPath ? 3 : (onSelection && hasSelection ? 2.2 : (opportunity ? 2.6 : (touchesMe ? 1.3 : 1.1))), dashes: false, color: { color: onPath ? "rgba(255,255,255,.92)" : colour, highlight: opportunity ? "#da291c" : "#ffffff", hover: "#ffffff", opacity: onSelection ? 1 : 0.18 }, font: relType ? { color: "#cfcfcf", size: 10, face: "Inter Var", strokeWidth: 4, strokeColor: "#181818", align: "middle" } : undefined, smooth: { enabled: true, type: "continuous", roundness: .28 }, hidden: false };
     });
     var data = { nodes: new window.vis.DataSet(nodes), edges: new window.vis.DataSet(edges) };
     var firstBuild = !state.network;
@@ -753,6 +763,15 @@
         window.__ORBIT_VIEW__ = function () { try { var v = state.network.getViewPosition(); return { scale: Number(state.network.getScale().toFixed(4)), x: Math.round(v.x), y: Math.round(v.y) }; } catch (e) { return null; } };
         window.__ORBIT_TOGGLE__ = function (id) { toggleSelectedId(id); return Object.keys(state.selectedIds); };
         window.__ORBIT_NEIGHBOURS__ = function (id) { return neighboursOf(String(id)).map(personLabel); };
+        window.__ORBIT_FOLLOWS__ = function () {
+          return (state.snapshot ? state.snapshot.links : []).filter(isFollowLink).map(function (l) {
+            return { from: personLabel(normaliseId(l.from)), to: personLabel(normaliseId(l.to)), label: igFollowLabel(l), attrs: D.attrs(l) };
+          });
+        };
+        window.__ORBIT_HANDLE__ = function (id) { var p = personById(id); return p ? String(D.attrs(p).instagram || "") : null; };
+        window.__ORBIT_BYHANDLE__ = function (handle) { var p = personByHandle(igHandle(handle)); return p ? String(p.id) : null; };
+        window.__ORBIT_RENAME__ = function (id, name) { renameContact(id, name); var p = personById(id); return p ? String(p.label) : null; };
+        window.__ORBIT_LABEL__ = function (id) { var p = personById(id); return p ? String(p.label) : null; };
         window.__ORBIT_MERGE__ = function (survivor, absorbed) { mergeContacts(survivor, absorbed); return state.selectedId; };
         window.__ORBIT_ATTRS__ = function (id) { var p = personById(id); return p ? D.attrs(p) : null; };
         window.__ORBIT_PROFILE__ = function (id) { var P = window.OrbitNetworkProfile; return P ? P.buildProfile(state.snapshot, String(id)) : null; };
@@ -810,7 +829,14 @@
     if (!person) return;
     var profile = P && P.buildProfile ? P.buildProfile(state.snapshot, id) : null;
     if (!profile) return;
-    setText("#dossier-name", profile.header.name);
+    var heading = $("#dossier-name");
+    if (heading) {
+      heading.setAttribute("contenteditable", "plaintext-only");
+      heading.setAttribute("role", "textbox");
+      heading.tabIndex = 0;
+      /* Never overwrite what is being typed. */
+      if (document.activeElement !== heading) heading.textContent = profile.header.name;
+    }
     var isOrg = profile.header.kind === "organisation" || profile.header.kind === "generic-inbox";
     var avatar = $("#dossier-avatar");
     if (avatar) {
@@ -849,10 +875,49 @@
     panel.setAttribute("aria-hidden", "false");
     panel.setAttribute("data-selected", "true");
   }
+  function renameContact(id, value) {
+    var person = personById(id); if (!person || !state.store) return false;
+    var next = String(value == null ? "" : value).replace(/\s+/g, " ").trim().slice(0, 120);
+    if (!next || next === String(person.label || "")) return false;
+    pushUndo();
+    /* upsert never rewrites an existing label, so the change is made on the
+     * record and persisted with an empty merge — the same route setRing takes. */
+    person.label = next;
+    state.store.merge({ entities: [], links: [] });
+    render();
+    openDossier(id);
+    if (isMe(id)) syncMeToAccount();
+    setText("#sync-status", "RENAMED · " + next.toUpperCase());
+    return true;
+  }
+  /* The heading is the input. Enter commits, Escape puts the old name back, and
+   * clicking away commits — the same contract as every other inline field. */
+  function wireInlineRename() {
+    var heading = $("#dossier-name"); if (!heading) return;
+    /* The record is the authority on what the name is, so an abandoned or
+     * refused edit is put back from it rather than from a remembered string. */
+    function currentName() {
+      var person = state.selectedId ? personById(state.selectedId) : null;
+      return person ? String(person.label || "") : "";
+    }
+    function restore() { heading.textContent = currentName(); }
+    heading.addEventListener("keydown", function (event) {
+      /* While the name is being typed the field owns the keyboard: Delete must
+       * not delete the contact, and Escape must leave the edit rather than
+       * closing the profile out from under it. */
+      event.stopPropagation();
+      if (event.key === "Enter") { event.preventDefault(); heading.blur(); return; }
+      if (event.key === "Escape") { event.preventDefault(); restore(); heading.blur(); }
+    });
+    heading.addEventListener("blur", function () {
+      if (!state.selectedId || !renameContact(state.selectedId, heading.textContent)) restore();
+    });
+  }
   function closeDossier() {
     state.selectedId = ""; state.profileTab = "summary"; state.mobileView = "network"; syncMobileNav();
     var panel = $("#person-dossier");
     panel.hidden = true; panel.setAttribute("aria-hidden", "true"); panel.removeAttribute("data-selected");
+    var heading = $("#dossier-name"); if (heading) heading.removeAttribute("contenteditable");
     if (state.store) renderGraph(state.snapshot);
   }
 
@@ -2082,7 +2147,8 @@
     if (!draft) { preview.innerHTML = ""; empty.hidden = true; return; }
     var CL = window.OrbitContactClassify;
     preview.innerHTML = draft.candidates.map(function (item, index) {
-      var event = item.kind === "interaction", detail = event ? [item.occurredAt ? formatDate(item.occurredAt) : "Undated", item.location, (item.attendees || []).map(function (attendee) { return attendee.name || attendee.email; }).join(", ")].filter(Boolean).join(" · ") : [item.role, item.organisation, item.email, item.phone].filter(Boolean).join(" · ");
+      var follow = item.igDirection === "following" ? "You follow @" + item.igHandle : (item.igDirection === "follower" ? "@" + item.igHandle + " follows you" : "");
+      var event = item.kind === "interaction", detail = event ? [item.occurredAt ? formatDate(item.occurredAt) : "Undated", item.location, (item.attendees || []).map(function (attendee) { return attendee.name || attendee.email; }).join(", ")].filter(Boolean).join(" · ") : [item.role, item.organisation, item.email, item.phone, follow].filter(Boolean).join(" · ");
       var category = item.category || "individual";
       var label = event ? item.sourceType.replace(/-import$/, "") : (CL && CL.categoryLabel ? CL.categoryLabel(category) : category);
       var match = draft.matches && draft.matches[index], matchNote = match ? "Possible match: " + (match.target && match.target.label || "existing contact") + (match.reason ? " (" + match.reason + ")" : "") : "";
@@ -2093,13 +2159,23 @@
     $("#import-select-all").checked = draft.candidates.length > 0 && draft.selected.every(function (value) { return value; });
     importSummary(draft.candidates);
   }
-  function reviewImport(file) {
-    if (!file || !window.OrbitNetworkImporters) return;
-    setText("#sync-status", "READING " + String(file.name || "FILE").toUpperCase() + "…");
-    readFileText(file).then(function (value) {
-      var result = window.OrbitNetworkImporters.review ? window.OrbitNetworkImporters.review(value, file.name) : { candidates: window.OrbitNetworkImporters.parse(value, file.name), skippedCount: 0 };
-      var candidates = result.candidates || [];
-      state.importDraft = { fileName: file.name, candidates: candidates, skippedCount: result.skippedCount || 0, matches: importMatches(candidates), selected: candidates.map(function () { return true; }) };
+  /* Several files review together, so a followers list and a following list
+   * land in one pass and every mutual follow is known before anything merges. */
+  function reviewImport(files) {
+    var list = files && files.length ? Array.prototype.slice.call(files) : (files ? [files] : []);
+    if (!list.length || !window.OrbitNetworkImporters) return;
+    var I = window.OrbitNetworkImporters;
+    setText("#sync-status", "READING " + (list.length > 1 ? list.length + " FILES" : String(list[0].name || "FILE").toUpperCase()) + "…");
+    Promise.all(list.map(function (file) {
+      return readFileText(file).then(function (value) {
+        var result = I.review ? I.review(value, file.name) : { candidates: I.parse(value, file.name), skippedCount: 0 };
+        return { name: file.name, candidates: result.candidates || [], skippedCount: result.skippedCount || 0 };
+      });
+    })).then(function (results) {
+      var candidates = [], skipped = 0;
+      results.forEach(function (result) { candidates = candidates.concat(result.candidates); skipped += result.skippedCount; });
+      var label = results.length > 1 ? results.map(function (r) { return r.name; }).join(" + ") : (results[0] ? results[0].name : "");
+      state.importDraft = { fileName: label, candidates: candidates, skippedCount: skipped, matches: importMatches(candidates), selected: candidates.map(function () { return true; }) };
       renderImportPreview();
       $("#import-modal").hidden = false;
       $("#import-select-all").focus();
@@ -2146,13 +2222,75 @@
     Object.keys(attrs).forEach(function (key) { if (attrs[key] === "" || (Array.isArray(attrs[key]) && !attrs[key].length)) delete attrs[key]; });
     return attrs;
   }
+  /* ---- Instagram follow links ----
+   * A follower list says who follows whom. One link per pair carries both
+   * directions, so importing followers and following in either order ends with
+   * the same answer: a mutual follow, or a one-way one drawn with an arrow. */
+  var IG_TYPE = "FOLLOWS";
+  function igHandle(value) {
+    return String(value == null ? "" : value).trim()
+      .replace(/^https?:\/\/(www\.)?instagram\.com\//i, "").replace(/^@/, "").replace(/\/+$/, "").toLowerCase();
+  }
+  function personByHandle(handle) {
+    if (!handle || !state.snapshot) return null;
+    return state.snapshot.entities.filter(function (entity) {
+      return D.isPerson(entity) && igHandle(D.attrs(entity).instagram) === handle;
+    })[0] || null;
+  }
+  /* Importing your own follower list is the ordinary case, so an owner handle
+   * Orbit has not seen before is taken to be yours and remembered on your
+   * record. A handle that is demonstrably NOT yours gets its own record, and the
+   * follows hang off that instead. */
+  function resolveIgOwner(handle) {
+    if (!state.store) return "";
+    if (!handle) return D.ME_ID;
+    var me = personById(D.ME_ID), mine = me ? igHandle(D.attrs(me).instagram) : "";
+    if (!mine) {
+      state.store.merge({ entities: [{ id: D.ME_ID, type: "person", label: me && me.label ? me.label : "You", attrs: { instagram: handle } }], links: [] });
+      return D.ME_ID;
+    }
+    if (mine === handle) return D.ME_ID;
+    var existing = personByHandle(handle);
+    if (existing) return String(existing.id);
+    var built = contactPart({ name: handle, instagram: handle, igHandle: handle, sourceType: "instagram-import", sourceRef: "instagram:" + handle });
+    if (!built) return D.ME_ID;
+    state.store.merge(built.part);
+    return String(built.entity.id);
+  }
+  /* The id is built from the sorted pair so the same two people always land on
+   * the same link, whichever file arrives first; from/to carry the direction. */
+  function igFollowLink(ownerId, personId, direction) {
+    if (!state.store || !ownerId || !personId || String(ownerId) === String(personId)) return null;
+    var pair = relationshipKey(ownerId, personId), stamp = new Date().toISOString();
+    var followsOwner = direction !== "following";     /* a followers list by default */
+    var from = followsOwner ? String(personId) : String(ownerId);
+    var to = followsOwner ? String(ownerId) : String(personId);
+    var attrs = { sourceType: "instagram-import", sourceRef: "instagram", observedAt: stamp, igOwner: String(ownerId) };
+    if (followsOwner) attrs.igFollowsOwner = true; else attrs.igOwnerFollows = true;
+    return {
+      id: state.store.linkId({ from: pair[0], to: pair[1], type: IG_TYPE }),
+      from: from, to: to, type: IG_TYPE, source: "instagram-import", createdBy: "personal-network",
+      contrib: relationshipContrib(ownerId, personId), attrs: attrs
+    };
+  }
+  /* What the edge should say, once both files have been through. */
+  function igFollowLabel(link) {
+    var a = D.attrs(link);
+    if (a.igFollowsOwner && a.igOwnerFollows) return "Mutual follow";
+    if (a.igFollowsOwner || a.igOwnerFollows) return "Follows";
+    return "";
+  }
+  function isFollowLink(link) { return String(link && link.type || "").toUpperCase() === IG_TYPE; }
   function contactPart(candidate) {
     candidate = candidate || {};
     var name = String(candidate.name || "").trim();
     if (!name || !state.store) return null;
     var stamp = candidate.observedAt || new Date().toISOString(), sourceType = String(candidate.sourceType || "manual"), sourceRef = String(candidate.sourceRef || (sourceType === "manual" ? "manual:" + stamp : sourceType));
     var attrs = contactAttrs(candidate, sourceType, sourceRef, stamp);
-    var entityId = state.store.entityId({ type: "person", identity: name, label: name }), entity = { id: entityId, type: "person", label: name, identity: name, source: sourceType === "manual" ? "manual" : sourceType, createdBy: "personal-network", contrib: "ent:" + entityId, attrs: attrs }, part = { entities: [entity], links: [] };
+    var handle = String(candidate.igHandle || "").toLowerCase();
+    var identity = handle ? "instagram:" + handle : name;
+    var entityId = String(candidate.mergeIntoId || "") || state.store.entityId({ type: "person", identity: identity, label: name });
+    var entity = { id: entityId, type: "person", label: name, identity: identity, source: sourceType === "manual" ? "manual" : sourceType, createdBy: "personal-network", contrib: "ent:" + entityId, attrs: attrs }, part = { entities: [entity], links: [] };
     if (attrs.note) {
       var noteIdentity = entityId + "|contact_note|" + attrs.note + "|" + sourceRef, noteId = state.store.entityId({ type: "fact", identity: noteIdentity, label: "Contact note" });
       part.entities.push({ id: noteId, type: "fact", label: "Contact note", identity: noteIdentity, source: entity.source, createdBy: "personal-network", contrib: "ent:" + entityId, attrs: { factType: "contact_note", value: attrs.note, sourceType: attrs.sourceType, sourceRef: sourceRef, observedAt: stamp, validFrom: stamp } });
@@ -2190,21 +2328,41 @@
     }
     try {
       setText("#import-summary", "Merging selected contacts…");
-      var part = { entities: [], links: [] }, selected = 0;
+      var part = { entities: [], links: [] }, selected = 0, follows = 0;
+      /* Resolve each owner handle once per merge, not once per follower. */
+      var owners = Object.create(null);
+      function igOwnerFor(handle) {
+        var key = String(handle || "");
+        if (!(key in owners)) owners[key] = resolveIgOwner(igHandle(key));
+        return owners[key];
+      }
       state.importDraft.candidates.forEach(function (candidate, index) {
         if (!state.importDraft.selected[index]) return;
-        var matched = state.importDraft.matches && state.importDraft.matches[index], mergeCandidate = matched && matched.target ? Object.assign({}, candidate, { name: matched.target.label }) : candidate;
+        var matched = state.importDraft.matches && state.importDraft.matches[index], target = matched && matched.target ? matched.target : null;
+        /* An in-batch match points at a synthetic stand-in with no real id; only
+         * a match against someone already in the vault can be merged into. */
+        var into = target && personById(target.id) ? String(target.id) : "";
+        var mergeCandidate = target ? Object.assign({}, candidate, { name: target.label, mergeIntoId: into }) : candidate;
         var built = candidate.kind === "interaction" ? { part: interactionPart(candidate) } : contactPart(mergeCandidate);
         if (!built || !built.part) return;
         selected++;
         part.entities = part.entities.concat(built.part.entities);
         part.links = part.links.concat(built.part.links);
+        /* An Instagram list also says how this person is connected to the
+         * account the list came from. */
+        if (candidate.igDirection && built.entity) {
+          var ownerId = igOwnerFor(candidate.igOwner);
+          var follow = igFollowLink(ownerId, built.entity.id, candidate.igDirection);
+          if (follow) { part.links.push(follow); follows++; }
+        }
       });
       if (!selected) {
         setText("#sync-status", "SELECT A CONTACT TO IMPORT");
         setText("#import-summary", "Nothing is selected. Select at least one contact, then try again.");
         return;
       }
+      var draft = state.importDraft;
+      var matchedCount = draft.matches ? draft.matches.reduce(function (count, match, index) { return count + (match && draft.selected[index] ? 1 : 0); }, 0) : 0;
       pushUndo();
       var result = state.store.merge(part);
       closeImport();
@@ -2212,8 +2370,9 @@
       if (result && result.persisted === false) {
         setText("#sync-status", "IMPORT HELD · STORAGE UNAVAILABLE");
       } else {
-        var matchedCount = state.importDraft.matches ? state.importDraft.matches.reduce(function (count, match, index) { return count + (match && state.importDraft.selected[index] ? 1 : 0); }, 0) : 0;
-        setText("#sync-status", "IMPORTED " + formatCount(selected) + " CONTACT" + (selected === 1 ? "" : "S") + (matchedCount ? " · " + formatCount(matchedCount) + " MATCHED" : ""));
+        setText("#sync-status", "IMPORTED " + formatCount(selected) + " CONTACT" + (selected === 1 ? "" : "S") +
+          (matchedCount ? " · " + formatCount(matchedCount) + " MATCHED" : "") +
+          (follows ? " · " + formatCount(follows) + " FOLLOW LINK" + (follows === 1 ? "" : "S") : ""));
       }
     } catch (error) {
       setText("#sync-status", "IMPORT ERROR");
@@ -2320,7 +2479,7 @@
     $$('[data-action="close-vault"]').forEach(function (button) { button.addEventListener("click", closeVault); });
     $('[data-action="export-vault"]').addEventListener("click", exportVault);
     $("#vault-file").addEventListener("change", function (event) { importVault(event.target.files && event.target.files[0]); event.target.value = ""; });
-    $("#contact-file").addEventListener("change", function (event) { reviewImport(event.target.files && event.target.files[0]); event.target.value = ""; });
+    $("#contact-file").addEventListener("change", function (event) { reviewImport(event.target.files); event.target.value = ""; });
     $("#calendar-file").addEventListener("change", function (event) { reviewImport(event.target.files && event.target.files[0]); event.target.value = ""; });
     $$('[data-action="close-import"]').forEach(function (button) { button.addEventListener("click", closeImport); });
     $('[data-action="merge-import"]').addEventListener("click", mergeImport);
@@ -2377,6 +2536,7 @@
     var emptyBin = $('[data-action="empty-bin"]'); if (emptyBin) emptyBin.addEventListener("click", trashClear);
     var recycleList = $("#recycle-list"); if (recycleList) recycleList.addEventListener("click", function (event) { var t = event.target.closest("[data-restore],[data-purge]"); if (!t) return; if (t.hasAttribute("data-restore")) trashRestore(t.getAttribute("data-restore")); else trashPurge(t.getAttribute("data-purge")); });
     updateTrashButton();
+    wireInlineRename();
     wireBackdropClose();
     state.layout = loadLayout();
     setText("#layout-tool-label", layoutMeta(state.layout).label);

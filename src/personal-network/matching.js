@@ -31,6 +31,9 @@
     var digits = text(value).replace(/\D/g, "");
     return digits.length >= 7 ? digits.slice(-10) : "";
   }
+  function igHandle(value) {
+    return text(value).replace(/^https?:\/\/(www\.)?instagram\.com\//i, "").replace(/^@/, "").replace(/\/+$/, "").trim().toLowerCase();
+  }
   function attrsOf(person) { return (person && person.attrs) || {}; }
   function labelOf(person) { return text(person && (person.label != null ? person.label : (attrsOf(person).name))); }
   function isGenericLocalPart(email) {
@@ -46,6 +49,7 @@
       name: normaliseName(candidate.name),
       organisation: normaliseName(candidate.organisation),
       sourceRef: text(candidate.sourceRef),
+      instagram: igHandle(candidate.instagram),
       genericEmail: normaliseEmails(candidate.email).some(isGenericLocalPart)
     };
   }
@@ -57,6 +61,7 @@
       name: normaliseName(labelOf(person)),
       organisation: normaliseName(a.organisation),
       sourceRef: text(a.sourceRef),
+      instagram: igHandle(a.instagram),
       genericEmail: normaliseEmails(a.email).some(isGenericLocalPart)
     };
   }
@@ -65,6 +70,14 @@
    * and each contributes to the reason so the flag can be explained. */
   function score(ck, pk) {
     var s = 0, signals = [];
+    /* Two social accounts are two people, whatever they call themselves — a
+     * follower list is full of people sharing a first name. A shared handle is
+     * the strongest evidence there is; different handles are proof they are not
+     * the same account, and outrank every other similarity. */
+    if (ck.instagram && pk.instagram) {
+      if (ck.instagram !== pk.instagram) return { score: 0, signals: [] };
+      s += 100; signals.push({ w: 100, why: "Same Instagram account" });
+    }
     var sharedEmail = ck.emails.some(function (email) { return pk.emails.indexOf(email) !== -1; });
     if (sharedEmail) { s += 100; signals.push({ w: 100, why: "Same email address" }); }
     if (ck.sourceRef && ck.sourceRef === pk.sourceRef) { s += 100; signals.push({ w: 95, why: "Same source record" }); }
@@ -106,7 +119,7 @@
     return {
       id: "import:" + text(candidate.name || candidate.email),
       label: text(candidate.name || candidate.email),
-      attrs: { email: candidate.email, phone: candidate.phone, phoneOther: candidate.phoneOther, organisation: candidate.organisation, sourceRef: candidate.sourceRef }
+      attrs: { email: candidate.email, phone: candidate.phone, phoneOther: candidate.phoneOther, organisation: candidate.organisation, sourceRef: candidate.sourceRef, instagram: candidate.instagram }
     };
   }
 
@@ -149,7 +162,8 @@
     matchAgainst: matchAgainst,
     normaliseName: normaliseName,
     normalisePhone: normalisePhone,
-    normaliseEmails: normaliseEmails
+    normaliseEmails: normaliseEmails,
+    igHandle: igHandle
   };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   if (root) root.OrbitContactMatching = api;

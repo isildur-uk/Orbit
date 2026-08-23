@@ -143,7 +143,9 @@ const igFollowers = JSON.stringify([
 const igReview = Importers.review(igFollowers, "followers_1.json");
 eq("Instagram followers (bare array) parsed", igReview.candidates.length, 2);
 eq("Instagram handle becomes the name", igReview.candidates[0].name, "coolcat");
-eq("Instagram profile URL captured", igReview.candidates[0].instagram, "https://www.instagram.com/coolcat");
+/* The handle is stored bare; the profile chip turns it into a link. */
+eq("Instagram handle captured", igReview.candidates[0].instagram, "coolcat");
+eq("and the direction comes from the file name", igReview.candidates[0].igDirection, "follower");
 
 const igFollowing = JSON.stringify({ relationships_following: [
   { string_list_data: [{ href: "https://www.instagram.com/mate", value: "mate" }] }
@@ -161,6 +163,62 @@ const genReview = Importers.review(generic, "contacts.json");
 assert("noreply record filtered out of JSON too", !genReview.candidates.some((c) => /noreply/.test(String(c.email))));
 eq("one automated record reported skipped", genReview.skippedCount, 1);
 assert("real person survives JSON import", genReview.candidates.some((c) => c.name === "Real Person"));
+
+console.log("\n[10] Instagram follower list pasted out of the web page");
+/* Every quirk the real paste carries: accounts with no display name, the
+ * avatar's alt text, separator dots, a comma inside a display name, emoji and
+ * unicode names, and a stray button label. */
+const igPaste = [
+  "",
+  "negeen000",
+  "Negeen Arasteh",
+  "tombrimble_2",
+  "Tom",
+  "____roseane_",
+  "kate_tollworthy",
+  "Katie Rose",
+  "purernbvibes",
+  "·",
+  "Pure RnB",
+  "camm.1927's profile picture",
+  "camm.1927",
+  "iainjwilson's profile picture",
+  "iainjwilson",
+  "Iain Wilson",
+  "Follow",
+  "mob_kitchen",
+  "Mob - delicious, healthy midweek cooking",
+  "tomwlsn",
+  "tom 𓆈",
+  "belleridene",
+  "B E L L E | R I D E N E"
+].join("\n");
+assert("a pasted handle list is recognised", Importers.looksLikeHandleList(igPaste));
+const ig = Importers.review(igPaste, "benwlsn11_IG_Followers");
+const igByHandle = {};
+ig.candidates.forEach((c) => { igByHandle[String(c.instagram).split("/").pop()] = c; });
+eq("one contact per account, not one per line", ig.candidates.length, 10);
+eq("a handle keeps its display name", igByHandle["negeen000"].name, "Negeen Arasteh");
+/* The drift this fixes: without the handle test, every account after one with
+ * no display name took the next handle as its name. */
+eq("an account with no display name uses its handle", igByHandle["____roseane_"].name, "____roseane_");
+eq("and the account after it is NOT thrown off", igByHandle["kate_tollworthy"].name, "Katie Rose");
+eq("a separator dot is not mistaken for a name", igByHandle["purernbvibes"].name, "Pure RnB");
+eq("the avatar alt text is dropped", igByHandle["camm.1927"].name, "camm.1927");
+eq("and the account after the alt text still pairs", igByHandle["iainjwilson"].name, "Iain Wilson");
+eq("a button label is dropped", igByHandle["mob_kitchen"].name, "Mob - delicious, healthy midweek cooking");
+eq("a unicode display name survives", igByHandle["tomwlsn"].name, "tom 𓆈");
+eq("a spaced-out display name survives", igByHandle["belleridene"].name, "B E L L E | R I D E N E");
+/* The handle is the identity, and the direction becomes a follow link rather
+ * than a note repeated on every contact. */
+eq("the handle is stored bare", igByHandle["tombrimble_2"].instagram, "tombrimble_2");
+eq("followers carry their direction", igByHandle["tombrimble_2"].igDirection, "follower");
+eq("and the owner the list belongs to", igByHandle["tombrimble_2"].igOwner, "benwlsn11");
+eq("a following list reads the other way", Importers.review(igPaste, "benwlsn11_IG_Following").candidates[0].igDirection, "following");
+/* A real spreadsheet must still reach the CSV reader. */
+assert("a two-column CSV is not mistaken for a handle list", !Importers.looksLikeHandleList(
+  ["name,email", "alex,alex@x.com", "priya,priya@x.com", "tom,tom@x.com", "mia,mia@x.com", "sara,sara@x.com"].join("\n")));
+assert("a short list is left alone", !Importers.looksLikeHandleList("alex\npriya"));
 
 console.log("\n[9] Google Contacts CSV export (repeated \"E-mail 1 - Value\" columns)");
 /* The export Google Contacts produces today. Every column here except the name,

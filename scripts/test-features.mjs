@@ -191,6 +191,44 @@ await page.keyboard.press("Escape");
 await wait(400);
 assert("Escape leaves the mode", (await page.evaluate(() => document.querySelector("#network-mode").textContent)) !== "GOING COLD");
 
+console.log("\n[6 · renaming from the profile]");
+await page.evaluate((t) => window.__ORBIT_SELECT__(t), id("Tom Baker"));
+await wait(400);
+const headingState = await page.evaluate(() => {
+  const h = document.querySelector("#dossier-name");
+  return { editable: h.getAttribute("contenteditable"), role: h.getAttribute("role"), text: h.textContent.trim() };
+});
+assert("the profile name is an editable field", headingState.editable === "plaintext-only" && headingState.role === "textbox", JSON.stringify(headingState));
+eq("showing the current name", headingState.text, "Tom Baker");
+/* Type into it the way a person would, then press Enter. */
+await page.evaluate(() => { const h = document.querySelector("#dossier-name"); h.focus(); h.textContent = "Thomas Baker"; });
+await page.keyboard.press("Enter");
+await wait(500);
+eq("Enter commits the new name", await page.evaluate((t) => window.__ORBIT_LABEL__(t), id("Tom Baker")), "Thomas Baker");
+assert("the chart shows it too", (await page.evaluate(() => document.querySelector("#dossier-name").textContent.trim())) === "Thomas Baker");
+/* Escape puts the old name back without saving. */
+await page.evaluate(() => { const h = document.querySelector("#dossier-name"); h.focus(); h.textContent = "Nonsense"; });
+await page.keyboard.press("Escape");
+await wait(400);
+eq("Escape abandons the edit", await page.evaluate((t) => window.__ORBIT_LABEL__(t), id("Tom Baker")), "Thomas Baker");
+assert("and leaves the profile open rather than closing it", !(await page.evaluate(() => document.querySelector("#person-dossier").hidden)));
+/* An empty name is not a name. */
+await page.evaluate(() => { const h = document.querySelector("#dossier-name"); h.focus(); h.textContent = "   "; h.blur(); });
+await wait(400);
+eq("a blank name is refused", await page.evaluate((t) => window.__ORBIT_LABEL__(t), id("Tom Baker")), "Thomas Baker");
+eq("and the field is put back", await page.evaluate(() => document.querySelector("#dossier-name").textContent.trim()), "Thomas Baker");
+await page.evaluate(() => document.querySelector('[data-action="undo"]').click());
+await wait(500);
+eq("undo restores the original name", await page.evaluate((t) => window.__ORBIT_LABEL__(t), id("Tom Baker")), "Tom Baker");
+/* Delete must not fire while a name is being typed. */
+const peopleBefore = await page.evaluate(() => window.__ORBIT_PEOPLE__());
+await page.evaluate(() => { const h = document.querySelector("#dossier-name"); h.focus(); });
+await page.keyboard.press("Delete");
+await wait(400);
+eq("Delete typed into the name does not delete the contact", await page.evaluate(() => window.__ORBIT_PEOPLE__()), peopleBefore);
+await page.evaluate(() => document.querySelector("#dossier-name").blur());
+await wait(300);
+
 assert("no uncaught errors", errors.length === 0, errors.join(" | "));
 
 console.log("\n----------------------------------------");

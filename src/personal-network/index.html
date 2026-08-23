@@ -207,7 +207,7 @@
         <button type="button" class="mobile-nav-item" data-mobile-view="profile" aria-label="Open selected profile">Profile</button>
         <button type="button" class="mobile-nav-item capture" data-action="mobile-capture" aria-label="Capture a note or interaction">Capture</button>
       </nav>
-      <input id="contact-file" type="file" accept=".csv,.vcf,.json,.txt,text/csv,text/vcard,text/x-vcard,application/json" hidden>
+      <input id="contact-file" type="file" accept=".csv,.vcf,.json,.txt,text/csv,text/vcard,text/x-vcard,application/json,text/plain" multiple hidden>
       <input id="calendar-file" type="file" accept=".ics,text/calendar" hidden>
     </main>
 
@@ -222,7 +222,7 @@
       <div class="dossier-header">
         <div id="dossier-avatar" class="dossier-avatar" aria-hidden="true" hidden></div>
         <div class="dossier-headings">
-          <div class="dossier-name-row"><h2 id="dossier-name">—</h2><span id="dossier-kind" class="kind-badge" hidden>Organisation</span><span id="dossier-ring" class="ring-badge" hidden></span></div>
+          <div class="dossier-name-row"><h2 id="dossier-name" class="dossier-name" spellcheck="false" title="Click to rename">—</h2><span id="dossier-kind" class="kind-badge" hidden>Organisation</span><span id="dossier-ring" class="ring-badge" hidden></span></div>
           <p id="dossier-role" class="dossier-role">Select a person to inspect their relationship context.</p>
           <div id="dossier-tags" class="dossier-tags" hidden></div>
         </div>

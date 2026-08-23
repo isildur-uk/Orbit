@@ -60,6 +60,7 @@
       socialProfiles: raw.socialProfiles || "",
       note: text(raw.note || raw.notes),
       tags: text(raw.tags || raw.labels),
+      igHandle: text(raw.igHandle),
       sourceType: sourceType,
       sourceRef: sourceRef
     };
@@ -242,7 +243,7 @@
     var handle = text(entry.value), href = text(entry.href);
     if (!handle && href) handle = href.replace(/^https?:\/\/(www\.)?instagram\.com\//i, "").replace(/\/+$/, "");
     if (!handle) return null;
-    return { name: handle, instagram: href || ("https://instagram.com/" + handle) };
+    return { name: handle, instagram: handle, igHandle: lower(handle) };
   }
   function jsonItem(item, note, sourceType, fileName, index) {
     var ref = fileName + ":" + (index + 1);
@@ -251,8 +252,15 @@
     if (typeof item !== "object") return null;
     if (item.string_list_data) {
       var ig = instagramProfile(item); if (!ig) return null;
-      if (note) ig.note = note;
-      return candidate(ig, "instagram-import", ref);
+      var built = candidate(ig, "instagram-import", ref);
+      /* Same treatment as a pasted list: the direction becomes a follow link
+       * rather than a note. An export carries no owner, which means "mine". */
+      if (built && built.candidate && /follow/i.test(text(note))) {
+        built.candidate.igHandle = lower(ig.igHandle || "");
+        built.candidate.igOwner = "";
+        built.candidate.igDirection = /following/i.test(note) ? "following" : "follower";
+      }
+      return built;
     }
     var raw = {
       name: first([item.name, item.fullName, item.fullname, item.fn, item.displayName, item.title]),
@@ -266,6 +274,80 @@
     };
     if (!raw.name && !raw.email) return null;
     return candidate(raw, sourceType, ref);
+  }
+  /* ---- A follower list copied out of the Instagram page ----
+   * Not the official export (that arrives as JSON and is handled above), but
+   * what you get selecting the list in a browser and pasting it: one handle per
+   * line, each OPTIONALLY followed by its display name, with the avatar's alt
+   * text, separator dots and button labels mixed in.
+   *
+   * Pairing line-by-line drifts the moment one account has no display name —
+   * from there every handle is read as a name and every name as a handle, which
+   * is why a pasted list came out scrambled. Anchoring on what a handle can
+   * actually look like keeps the pairs honest instead. */
+  var IG_HANDLE = /^[a-z0-9._]{1,30}$/;
+  var IG_CHROME = /^(?:follow|following|follow back|followback|requested|remove|message|verified|suggested for you|close friend|see all)$/i;
+  function isHandleLine(value) {
+    var v = text(value);
+    return IG_HANDLE.test(v) && /[a-z0-9]/.test(v);
+  }
+  function igNoise(value) {
+    var v = text(value);
+    if (!v) return true;
+    if (/'s profile picture$/i.test(v)) return true;      /* the avatar's alt text */
+    if (IG_CHROME.test(v)) return true;
+    return !/[a-z0-9\u00c0-\uffff]/i.test(v);             /* a lone separator dot */
+  }
+  /* True when the text is a bare list of handles rather than a spreadsheet. A
+   * spreadsheet carries a separator on nearly every row; one display name that
+   * happens to contain a comma ("Mob - delicious, healthy midweek cooking")
+   * must not hand the whole file to the CSV reader. */
+  function looksLikeHandleList(textValue) {
+    var lines = text(textValue).split(/\r?\n/).map(text).filter(function (line) { return !igNoise(line); });
+    if (lines.length < 5) return false;
+    var separated = lines.filter(function (line) { return line.indexOf(",") !== -1 || line.indexOf("\t") !== -1; }).length;
+    if (separated / lines.length > 0.1) return false;
+    var handles = lines.filter(isHandleLine).length;
+    return handles >= 5 && handles / lines.length >= 0.4;
+  }
+  /* "benwlsn11_IG_Followers" names the account the list belongs to and the
+   * direction it runs in. Official export names ("followers_1.json") carry the
+   * direction but no owner, which simply means "mine". */
+  function handleListMeta(fileName) {
+    var raw = text(fileName).replace(/\.[a-z0-9]+$/i, "");
+    var direction = /following/i.test(raw) ? "following" : (/followers?/i.test(raw) ? "follower" : "");
+    /* Whatever precedes the direction word is the account the list belongs to,
+     * once the platform marker and separators are taken off. A handle may itself
+     * contain underscores ("liv._.sim"), so the direction word is the anchor
+     * rather than the first separator. */
+    var owner = "", cut = raw.search(/(?:followers?|following)\s*$/i);
+    if (cut > 0) {
+      owner = raw.slice(0, cut).replace(/[\s_\-]*(?:ig|instagram)[\s_\-]*$/i, "").replace(/[\s_\-]+$/, "");
+      if (!/^[a-z0-9._]{1,30}$/i.test(owner)) owner = "";
+    }
+    return { owner: lower(owner), direction: direction };
+  }
+  function handleList(textValue, fileName) {
+    var lines = text(textValue).split(/\r?\n/).map(text).filter(function (line) { return !igNoise(line); });
+    var meta = handleListMeta(fileName), out = [], index = 0;
+    for (var i = 0; i < lines.length; i++) {
+      if (!isHandleLine(lines[i])) continue;             /* a name with no handle above it */
+      var handle = lines[i], display = "";
+      /* The next line is the display name only if it could not itself be a
+       * handle; an account without one is followed straight by the next handle. */
+      if (i + 1 < lines.length && !isHandleLine(lines[i + 1])) { display = lines[i + 1]; i++; }
+      index++;
+      /* The handle is stored bare, not as a URL, so the profile chip reads
+       * "kate_tollworthy" and still links through to the account. */
+      var built = candidate({ name: display || handle, instagram: handle }, "instagram-import", fileName + ":" + index);
+      if (built && built.candidate) {
+        built.candidate.igHandle = handle;
+        built.candidate.igOwner = meta.owner;
+        built.candidate.igDirection = meta.direction;
+      }
+      out.push(built);
+    }
+    return collect(out);
   }
   /* Parses contact-shaped JSON: Meta "Download Your Information" exports
    * (Facebook friends, Instagram followers/following) and generic arrays or
@@ -281,7 +363,10 @@
       relationships_close_friends: ["Instagram · close friend", "instagram-import"], close_friends: ["Instagram · close friend", "instagram-import"]
     };
     function run(arr, note, sourceType) { (arr || []).forEach(function (item, i) { out.push(jsonItem(item, note, sourceType, fileName, i)); }); }
-    if (Array.isArray(data)) run(data, "", "json-import");
+    if (Array.isArray(data)) {
+      var fileMeta = handleListMeta(fileName);
+      run(data, fileMeta.direction === "following" ? "Instagram · following" : (fileMeta.direction === "follower" ? "Instagram · follower" : ""), "json-import");
+    }
     else if (data && typeof data === "object") {
       var handled = false;
       Object.keys(data).forEach(function (k) {
@@ -303,11 +388,12 @@
     if (/\.ics$|ical|calendar/.test(name) || /BEGIN:VEVENT/i.test(value)) { var events = calendar(value, fileName || "calendar.ics"); return { candidates: events, skippedCount: 0 }; }
     if (/\.json$/.test(name)) return json(value, fileName || "export.json");
     if (/^\s*[\[{]/.test(value)) { var parsed = json(value, fileName || "export.json"); if (parsed.candidates.length) return parsed; }
+    if (looksLikeHandleList(value)) return handleList(value, fileName || "instagram.txt");
     return csv(value, fileName || "contacts.csv");
   }
   /* parse() keeps its original array contract for any existing caller/test. */
   function parse(input, fileName) { return review(input, fileName).candidates; }
-  var api = { parse: parse, review: review, csv: csv, vcard: vcard, calendar: calendar, json: json };
+  var api = { parse: parse, review: review, csv: csv, vcard: vcard, calendar: calendar, json: json, handleList: handleList, looksLikeHandleList: looksLikeHandleList, handleListMeta: handleListMeta };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   if (root) root.OrbitNetworkImporters = api;
 })(typeof window !== "undefined" ? window : globalThis);
