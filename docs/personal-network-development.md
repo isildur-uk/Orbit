@@ -327,6 +327,35 @@ Four interaction/auth changes:
   on draw and labels the link). QA hooks added: `__ORBIT_DRAGTO__`, `__ORBIT_RING__`,
   `__ORBIT_CYCLE__`, and `__ORBIT_SELECT__` now anchors the cycle.
 
+## Batch — profile-first layout, recycle bin, popup sign-in, GitHub + isildur deploy
+
+- **GitHub**: repo `isildur-uk/Orbit` (gh account punch-monkey). **isildur deploy**:
+  self-contained bundle → `Isildur/site/projects/orbit/index.html` (git root
+  `Isildur/site` → `isildur-uk/isildur` → isildur.co.uk/projects/orbit/), with a
+  no-cache `/projects/orbit/*` rule in `site/_headers`. Cloud auth stays on;
+  needs `https://isildur.co.uk/projects/orbit/**` in Supabase Redirect URLs.
+- **Standalone build fixes**: closed a malformed CSP `<meta>` (stray quote had
+  swallowed the offline-flag script); skip SW registration + drop the PWA manifest
+  link in offline builds (`ORBIT_OFFLINE_BUILD`). Bundle verified zero console errors.
+- **Profile-first left panel** (Option A): the selected person's profile now fills
+  the LEFT sidebar (CSS-grid relocation of `#person-dossier` into column 1, row 2;
+  no DOM move — keeps mobile's bottom-sheet rules intact). No-selection shows a
+  placeholder (`#person-dossier:not([data-selected])`). Stats removed from the
+  sidebar; People/Relationships count moved to the toolbar (`#toolbar-count`);
+  sources live in the Connect modal. `panelresize` now resizes only the left
+  column (initDossier retired; default width 360).
+- **Recycle bin**: delete is frictionless (all `window.confirm` removed) and
+  reversible — soft-delete captures the entity + notes + links + pinned state to
+  `orbit_trash_v1`, with a bin button (badge count) in the graph tools opening a
+  restore/purge modal. Undo (Ctrl+Z) still works for immediate reversal.
+- **Popup sign-in**: `signInWithProvider(p, {popup:true})` uses Supabase
+  `skipBrowserRedirect` + `window.open`; the session syncs back to the opener via
+  Supabase's cross-tab broadcast and the popup self-closes on SIGNED_IN (guarded
+  by `window.name === "orbit-oauth"`). Falls back to full-page redirect if blocked.
+  **Needs live verification on the deploy** (headless can't drive real OAuth).
+- Tests: new `test-recycle.mjs` (11). Suites this session all green: import 51,
+  layouts 39, boot 7, layouts-render 22, interactions 16, recycle 11.
+
 ## Next
 
 1. Replace the local vault adapter with an encrypted sync repository while preserving offline-first edits.

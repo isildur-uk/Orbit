@@ -150,7 +150,9 @@
     if (provider === "google" && window.OrbitCloudAuth && window.OrbitCloudAuth.configured && A && A.beginConnection && A.signInWithProvider) {
       A.beginConnection("google");
       setText("#connections-status", "Opening Google consent for read-only contacts access…");
-      A.signInWithProvider("google", { scopes: "openid email profile https://www.googleapis.com/auth/contacts.readonly" }).catch(function (error) {
+      A.signInWithProvider("google", { popup: true, scopes: "openid email profile https://www.googleapis.com/auth/contacts.readonly" }).then(function (result) {
+        if (result && result.popup) setText("#connections-status", "Approve read-only contacts access in the popup window…");
+      }).catch(function (error) {
         if (A.consumeConnectionIntent) A.consumeConnectionIntent();
         setText("#connections-status", error && error.message ? error.message : "Google Contacts could not be connected.");
         renderConnections();
@@ -166,11 +168,11 @@
     setText("#connections-status", message);
     renderConnections();
   }
-  function finishPendingConnection() {
+  function finishPendingConnection(tokenOverride) {
     if (!A || !A.consumeConnectionIntent || !window.OrbitGoogleContacts) return;
     var provider = A.consumeConnectionIntent();
     if (provider !== "google") return;
-    var token = A.providerToken ? A.providerToken() : "";
+    var token = tokenOverride || (A.providerToken ? A.providerToken() : "");
     if (!token) {
       C.markSetup("google", "Google did not return contacts access. Choose Connect Google and approve the read-only contacts permission.");
       setText("#sync-status", "GOOGLE CONTACTS NEEDS PERMISSION");
@@ -1609,6 +1611,15 @@
     $("#auth-signup-form").addEventListener("submit", function (event) { event.preventDefault(); handleCreate(event.currentTarget); });
     $("#auth-signin-form").addEventListener("submit", function (event) { event.preventDefault(); handleSignIn(event.currentTarget); });
     $$('[data-auth-provider]').forEach(function (button) { button.addEventListener("click", function () { handleProviderSignIn(button.getAttribute("data-auth-provider")); }); });
+    /* A sign-in popup posts its provider token back here on completion; if a
+     * Google contacts connect is pending, finish it with that token (the token
+     * isn't reliably synced across tabs, so we pass it explicitly). */
+    window.addEventListener("message", function (event) {
+      if (event.origin !== window.location.origin) return;
+      var data = event.data;
+      if (!data || data.source !== "orbit-oauth") return;
+      finishPendingConnection(data.provider_token || "");
+    });
     $("#account-form").addEventListener("submit", function (event) { event.preventDefault(); saveAccountProfile(event.currentTarget); });
     $('[data-action="account"]').addEventListener("click", openAccountModal);
     $('[data-action="close-account"]').addEventListener("click", closeAccountModal);

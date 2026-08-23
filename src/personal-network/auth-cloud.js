@@ -127,7 +127,13 @@
    * opener tab receives the session through Supabase's cross-tab broadcast. */
   if (client && typeof window !== "undefined" && window.opener && window.name === "orbit-oauth") {
     var popupClosed = false, closePopup = function () { if (popupClosed) return; popupClosed = true; try { window.close(); } catch (e) {} };
-    client.auth.onAuthStateChange(function (event) { if (event === "SIGNED_IN") setTimeout(closePopup, 250); });
+    client.auth.onAuthStateChange(function (event, session) {
+      if (event !== "SIGNED_IN") return;
+      /* Hand the opener the provider token (needed for the Google People API) —
+       * it is not reliably carried by Supabase's cross-tab session sync. */
+      try { if (window.opener && !window.opener.closed) window.opener.postMessage({ source: "orbit-oauth", provider_token: (session && session.provider_token) || "" }, window.location.origin); } catch (e) {}
+      setTimeout(closePopup, 250);
+    });
     setTimeout(closePopup, 6000);
   }
 
