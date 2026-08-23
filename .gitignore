@@ -32,3 +32,5 @@ Thumbs.db
 # Android gradle cache (generated)
 desktop/src-tauri/gen/android/.gradle/
 desktop/src-tauri/gen/android/build/
+
+contacts/

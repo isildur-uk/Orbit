@@ -34,15 +34,20 @@
     return parts.length ? AUTOMATED_LOCAL.test(parts[0]) : false;
   }
 
-  /* input: { name, organisation, emails:[..] }
+  /* input: { name, organisation, emails:[..], details:[..] }
    * name is the person's REAL provided name ("" if the source only had an email
-   * local part). Returns { skip:reason } or { category, reason }.            */
+   * local part). "details" is everything known BESIDES the name and the email —
+   * a phone number, a role, an address, a birthday, a note. Returns
+   * { skip:reason } or { category, reason }.                                */
   function classify(input) {
     input = input || {};
     var name = text(input.name);
     var organisation = text(input.organisation);
     var emails = (input.emails || []).map(function (e) { return String(e || "").toLowerCase().trim(); }).filter(Boolean);
     var locals = localParts(emails);
+    var details = (input.details || []).filter(function (value) {
+      return Array.isArray(value) ? value.length > 0 : text(value) !== "";
+    });
 
     if (locals.some(function (local) { return AUTOMATED_LOCAL.test(local); })) {
       return { skip: "automated address" };
@@ -56,16 +61,21 @@
     if (!name && generic) return { category: "generic-inbox", reason: "Shared or functional inbox" };
     if (!name && organisation) return { category: "organisation", reason: "Organisation name only" };
     if (orgKeyword) return { category: "organisation", reason: "Organisation name" };
+    /* An address and nothing else is an address, however good a name came with
+     * it. A name on its own does not tell you who someone is — the email is the
+     * only thing you actually hold, so the record is filed as what it is and
+     * drawn as an envelope rather than as a person. */
+    if (emails.length && !details.length) return { category: "email", reason: "Email address only" };
     if (name) return { category: "individual", reason: "Personal name" };
-    /* Only an email local part to go on: keep it, but flag it as ambiguous so
-     * the review screen never presents a guess as a fact. */
-    return { category: "unknown", reason: "Ambiguous — email only" };
+    return { category: "email", reason: "Email address only" };
   }
 
   var CATEGORY_LABELS = {
     individual: "Individual",
     organisation: "Organisation",
     "generic-inbox": "Generic inbox",
+    email: "Email only",
+    /* Kept for records classified before "email only" existed. */
     unknown: "Ambiguous"
   };
   function categoryLabel(category) { return CATEGORY_LABELS[category] || "Contact"; }

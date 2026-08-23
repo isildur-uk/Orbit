@@ -66,7 +66,12 @@
     if (!out.name && !out.email) return null;
     /* Classify from the REAL name (before any email fallback), so an automated
      * or organisation address is judged on what it actually is. */
-    var verdict = Classify ? Classify.classify({ name: out.name, organisation: out.organisation, emails: [out.email] }) : { category: "individual" };
+    var verdict = Classify ? Classify.classify({
+      name: out.name, organisation: out.organisation, emails: [out.email],
+      details: [out.phone, out.phoneOther, out.role, out.organisation, out.location, out.address,
+        out.workAddress, out.website, out.whatsapp, out.signal, out.instagram, out.facebook,
+        out.x, out.birthday, out.interests, out.note, out.socialProfiles]
+    }) : { category: "individual" };
     if (verdict.skip) return { skipped: verdict.skip };
     out.category = verdict.category || "individual";
     out.classification = verdict.reason || "";

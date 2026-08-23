@@ -39,9 +39,12 @@ eq("noreply@google.com is filtered", Classify.classify({ name: "", organisation:
   assert(e + " is filtered", !!Classify.classify({ name: "", organisation: "", emails: [e] }).skip);
 });
 eq("info@company.com → generic inbox", Classify.classify({ name: "", organisation: "Company Ltd", emails: ["info@company.com"] }).category, "generic-inbox");
-eq("named person → individual", Classify.classify({ name: "Alex Morgan", organisation: "", emails: ["alex@gmail.com"] }).category, "individual");
+eq("named person with a phone number → individual", Classify.classify({ name: "Alex Morgan", organisation: "", emails: ["alex@gmail.com"], details: ["07900 123456"] }).category, "individual");
+/* An address and nothing else is an address, however good the name is. */
+eq("named person with nothing but an email → email only", Classify.classify({ name: "Alex Morgan", organisation: "", emails: ["alex@gmail.com"] }).category, "email");
+eq("a note is enough to make them a person", Classify.classify({ name: "Alex Morgan", organisation: "", emails: ["alex@gmail.com"], details: ["", "", "Met at the show"] }).category, "individual");
 eq("Acme Ltd (name only) → organisation", Classify.classify({ name: "Acme Trading Ltd", organisation: "", emails: [] }).category, "organisation");
-eq("email-only → ambiguous/unknown", Classify.classify({ name: "", organisation: "", emails: ["someone123@nowhere.net"] }).category, "unknown");
+eq("an unnamed email is email only too", Classify.classify({ name: "", organisation: "", emails: ["someone123@nowhere.net"] }).category, "email");
 assert("real name containing 'no' not filtered", !Classify.classify({ name: "Noah Reilly", organisation: "", emails: ["noah@x.com"] }).skip);
 
 console.log("\n[2] CSV import + filtering (review)");
@@ -64,7 +67,10 @@ review.candidates.forEach((c) => { byName[c.name] = c; });
 eq("Alex Morgan classified individual", byName["Alex Morgan"].category, "individual");
 eq("info@company.com classified generic-inbox", byName["info"].category, "generic-inbox");
 eq("Priya Patel (named person at company) individual", byName["Priya Patel"].category, "individual");
-eq("email-only record ambiguous", byName["someone123"].category, "unknown");
+eq("email-only record is filed as email only", byName["someone123"].category, "email");
+/* Sarah Jones carries a name and an email and nothing else. */
+eq("a named row with only an email is email only", byName["Sarah Jones"].category, "email");
+eq("a named row with a phone number is a person", byName["Sarah J"].category, "individual");
 
 console.log("\n[3] Duplicate detection with explanations");
 const existingPeople = [

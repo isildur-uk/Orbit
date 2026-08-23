@@ -7,7 +7,7 @@
   var A = window.OrbitCloudAuth && window.OrbitCloudAuth.configured ? window.OrbitCloudAuth : window.OrbitLocalAuth;
   var C = window.OrbitConnections;
   var T = window.OrbitTags;
-  var state = { tagFilter: {}, store: null, ready: null, network: null, snapshot: null, selectedId: "", editingId: "", query: "", opportunityMode: false, profileTab: "summary", mobileView: "network", importDraft: null, workspaceStarted: false, positions: {}, _nodeCount: -1, selectedEdge: null, linkFrom: null, pendingPlace: null, pinned: {}, undoStack: [], redoStack: [], photoLoaded: {}, photoPending: {}, emptyDismissed: false, shiftHeld: false, selectedIds: {}, layout: "orbit", ringAngle: {}, cycleAnchor: "", cycleIndex: -1 };
+  var state = { tagFilter: {}, coldMode: false, path: null, store: null, ready: null, network: null, snapshot: null, selectedId: "", editingId: "", query: "", opportunityMode: false, profileTab: "summary", mobileView: "network", importDraft: null, workspaceStarted: false, positions: {}, _nodeCount: -1, selectedEdge: null, linkFrom: null, pendingPlace: null, pinned: {}, undoStack: [], redoStack: [], photoLoaded: {}, photoPending: {}, emptyDismissed: false, shiftHeld: false, selectedIds: {}, layout: "orbit", ringAngle: {}, cycleAnchor: "", cycleIndex: -1 };
   var $ = function (selector) { return document.querySelector(selector); };
   var $$ = function (selector) { return Array.prototype.slice.call(document.querySelectorAll(selector)); };
 
@@ -453,6 +453,8 @@
     var RADIUS = 3.1, GAP = 8.4, MAX = 5;
     var hasSelection = !!state.selectedId || Object.keys(state.selectedIds).length > 0;
     var filtering = activeTags().length > 0;
+    var cold = coldSet(), pathSet = state.path ? state.path.set : null;
+    var narrowed = state.query.trim() || hasSelection || filtering || state.coldMode || !!pathSet;
     ctx.save();
     state.snapshot.entities.forEach(function (person) {
       if (!D.isPerson(person)) return;
@@ -462,8 +464,8 @@
       try { box = state.network.getBoundingBox(id); } catch (e) { return; }
       if (!box) return;
       var selected = state.selectedId === id || !!state.selectedIds[id];
-      var focused = selected || (filtering && personMatchesFilter(person));
-      ctx.globalAlpha = (state.query.trim() || hasSelection || filtering) && !focused ? 0.28 : 1;
+      var focused = selected || (pathSet ? !!pathSet[id] : ((state.coldMode && !!cold[id]) || (filtering && personMatchesFilter(person))));
+      ctx.globalAlpha = narrowed && !focused ? 0.28 : 1;
       var shown = tags.slice(0, MAX);
       var cx = (box.left + box.right) / 2, y = box.bottom + 17;
       var startX = cx - ((shown.length - 1) * GAP) / 2;
@@ -543,10 +545,20 @@
      * people on screen a slightly thicker border is not enough to find one. */
     var hasSelection = !!state.selectedId || Object.keys(state.selectedIds).length > 0;
     var filtering = activeTags().length > 0;
-    function dimmed(isSelected) { return (state.query.trim() || hasSelection || filtering) && !isSelected ? 0.28 : 1; }
-    /* A tag filter puts its people in the foreground the same way a selection
-     * does — the rest of the network stays visible, just out of the way. */
-    function inFocus(person, isSelected) { return isSelected || (filtering && personMatchesFilter(person)); }
+    var cold = coldSet(), coldActive = state.coldMode;
+    var pathSet = state.path ? state.path.set : null;
+    var narrowed = state.query.trim() || hasSelection || filtering || coldActive || !!pathSet;
+    function dimmed(isSelected) { return narrowed && !isSelected ? 0.28 : 1; }
+    /* A tag filter, a chain, or the going-cold sweep each put their people in
+     * the foreground the same way a selection does — the rest of the network
+     * stays visible, just out of the way. */
+    function inFocus(person, isSelected) {
+      if (isSelected) return true;
+      var id = String(person.id);
+      if (pathSet) return !!pathSet[id];
+      if (coldActive && cold[id]) return true;
+      return filtering && personMatchesFilter(person);
+    }
     /* SOLAR-parity computed layouts (peacock, tree, grid, force, …) produce a
      * full positions map for ME + every visible person; orbit/free are handled
      * by the ring/saved-position logic below. */
@@ -566,7 +578,7 @@
     var mePos = (layoutPos && layoutPos[D.ME_ID]) ? layoutPos[D.ME_ID] : mePosition();
     var meFixed = computedKind ? !layoutPhysics : (state.layout === "orbit" || !!state.pinned[D.ME_ID]);
     var meEntity = snapshot.entities.filter(function (entity) { return isMe(entity.id); })[0] || null;
-    var meSelected = isMe(state.selectedId) || !!state.selectedIds[D.ME_ID];
+    var meSelected = isMe(state.selectedId) || !!state.selectedIds[D.ME_ID] || !!(state.path && state.path.set[D.ME_ID]);
     var mePhoto = meEntity && photoReady(D.attrs(meEntity).photo) ? D.attrs(meEntity).photo : "";
     var meNode = { id: D.ME_ID, label: meEntity && meEntity.label ? String(meEntity.label) : "ME", x: mePos.x, y: mePos.y, fixed: meFixed, shape: "dot", size: meSelected ? 30 : 24, borderWidth: meSelected ? 5 : 2, opacity: Math.max(dimmed(meSelected), 0.62), color: { background: "#da291c", border: "#ffffff", highlight: { background: "#ec3325", border: "#ffffff" } }, font: { color: "#ffffff", size: meSelected ? 15 : 13, face: "Inter Var", bold: true, strokeWidth: 5, strokeColor: "#141414" }, shadow: { enabled: true, color: meSelected ? "rgba(255,255,255,.8)" : "rgba(218,41,28,.55)", size: meSelected ? 34 : 26, x: 0, y: 0 } };
     if (mePhoto) { meNode.shape = "circularImage"; meNode.image = mePhoto; meNode.size = meSelected ? 30 : 24; }
@@ -601,14 +613,15 @@
       var inner = summary.score >= 55;
       var ringCol = ringPinned ? RING_COLOURS[ringKey] : null;
       var baseBg = opportunity ? "#da291c" : (organisation ? "#241f16" : (emailOnly ? "#1e2226" : (inner ? "#3a3330" : "#2b2b2b")));
-      var baseBorder = selected ? "#ffffff" : (ringCol || (opportunity ? "#ff6a5e" : (organisation ? "#c9a24b" : (emailOnly ? "#6f8592" : (inner ? "#c98b84" : "#8a8a8a")))));
+      var overdue = coldActive && !!cold[String(person.id)];
+      var baseBorder = selected ? "#ffffff" : (overdue ? "#e08a3c" : (ringCol || (opportunity ? "#ff6a5e" : (organisation ? "#c9a24b" : (emailOnly ? "#6f8592" : (inner ? "#c98b84" : "#8a8a8a"))))));
       var photo = photoReady(D.attrs(person).photo) ? D.attrs(person).photo : "";
       var node = { id: String(person.id), label: String(person.label || "Unnamed person"), x: position.x, y: position.y, fixed: nodeFixed, size: selected ? 24 : (opportunity ? 14 : 9 + Math.round(summary.score / 20)), borderWidth: selected ? 4 : 1.4, color: { background: baseBg, border: baseBorder, highlight: { background: "#da291c", border: "#ffffff" }, hover: { background: baseBg, border: "#ffffff" } }, opacity: dimmed(focused), font: { color: selected ? "#ffffff" : "#e4e4e4", size: selected ? 16 : 12, face: "Inter Var", bold: selected, vadjust: -2, strokeWidth: selected ? 6 : 4, strokeColor: "#181818" }, shadow: selected ? { enabled: true, color: "rgba(255,255,255,.8)", size: 30, x: 0, y: 0 } : { enabled: true, color: "rgba(0,0,0,.5)", size: 7, x: 0, y: 2 }, title: String(summary.role || (organisation ? "Organisation" : (emailOnly ? "Email only — no name recorded" : ""))) };
       if (photo) { node.shape = "circularImage"; node.image = photo; node.size = selected ? 28 : 18; node.borderWidth = selected ? 4 : 2; if (ringCol && !selected) node.color.border = ringCol; }
       else if (window.OrbitIcons) {
         var Icons = window.OrbitIcons;
         var iconKey = String(D.attrs(person).icon || Icons.defaultKey(kind));
-        var chipRing = ringCol || (opportunity ? "#ff6a5e" : (organisation ? "#c9a24b" : (emailOnly ? "#6f8592" : (inner ? "#c98b84" : "#8a8a8a"))));
+        var chipRing = overdue ? "#e08a3c" : (ringCol || (opportunity ? "#ff6a5e" : (organisation ? "#c9a24b" : (emailOnly ? "#6f8592" : (inner ? "#c98b84" : "#8a8a8a")))));
         var chipUrl = Icons.chip(iconKey, { bg: organisation ? "#241f16" : (emailOnly ? "#1e2226" : "#242424"), ring: chipRing, glyph: organisation ? "#e6c877" : (emailOnly ? "#b6c6cf" : "#e8e8e8") });
         if (photoReady(chipUrl)) {
           node.shape = "circularImage"; node.image = chipUrl; node.size = selected ? 27 : 16;
@@ -627,8 +640,9 @@
       var touchesMe = from === D.ME_ID || to === D.ME_ID;
       var colour = opportunity ? "rgba(218,41,28,.9)" : (touchesMe ? "rgba(255,255,255,.36)" : "rgba(255,255,255,.2)");
       var relType = String(D.attrs(link).relationshipType || "");
-      var onSelection = !hasSelection || from === String(state.selectedId) || to === String(state.selectedId) || !!state.selectedIds[from] || !!state.selectedIds[to];
-      return { id: String(link.id), from: from, to: to, label: relType || undefined, width: onSelection && hasSelection ? 2.2 : (opportunity ? 2.6 : (touchesMe ? 1.3 : 1.1)), dashes: false, color: { color: colour, highlight: opportunity ? "#da291c" : "#ffffff", hover: "#ffffff", opacity: onSelection ? 1 : 0.18 }, font: relType ? { color: "#cfcfcf", size: 10, face: "Inter Var", strokeWidth: 4, strokeColor: "#181818", align: "middle" } : undefined, smooth: { enabled: true, type: "continuous", roundness: .28 }, hidden: false };
+      var onPath = pathSet && pathSet[from] && pathSet[to] && Math.abs(state.path.ids.indexOf(from) - state.path.ids.indexOf(to)) === 1;
+      var onSelection = pathSet ? !!onPath : (!hasSelection || from === String(state.selectedId) || to === String(state.selectedId) || !!state.selectedIds[from] || !!state.selectedIds[to]);
+      return { id: String(link.id), from: from, to: to, label: relType || undefined, width: onPath ? 3 : (onSelection && hasSelection ? 2.2 : (opportunity ? 2.6 : (touchesMe ? 1.3 : 1.1))), dashes: false, color: { color: onPath ? "rgba(255,255,255,.92)" : colour, highlight: opportunity ? "#da291c" : "#ffffff", hover: "#ffffff", opacity: onSelection ? 1 : 0.18 }, font: relType ? { color: "#cfcfcf", size: 10, face: "Inter Var", strokeWidth: 4, strokeColor: "#181818", align: "middle" } : undefined, smooth: { enabled: true, type: "continuous", roundness: .28 }, hidden: false };
     });
     var data = { nodes: new window.vis.DataSet(nodes), edges: new window.vis.DataSet(edges) };
     var firstBuild = !state.network;
@@ -727,6 +741,11 @@
         window.__ORBIT_TAGS__ = function (id) { var p = personById(id); return p ? tagsOf(p) : null; };
         window.__ORBIT_SETTAGS__ = function (id, list) { setTags(id, list); return __ORBIT_TAGS__(id); };
         window.__ORBIT_TAGCENSUS__ = function () { return tagCensus(); };
+        window.__ORBIT_DUPES__ = function () { return duplicateCandidates().map(function (d) { return { a: String(d.a.id), b: String(d.b.id), reason: d.reason }; }); };
+        window.__ORBIT_PATH__ = function (id) { showPathTo(id); return state.path ? state.path.ids : null; };
+        window.__ORBIT_COLD__ = function () { return coldList().map(function (r) { return { id: r.id, label: r.label, ring: r.ring, days: r.debt.days, ever: r.debt.everContacted }; }); };
+        window.__ORBIT_COLDMODE__ = function () { toggleColdMode(); return state.coldMode; };
+        window.__ORBIT_BULKTAG__ = function (ids, tag) { bulkTag(ids, tag); return ids.map(function (i) { return __ORBIT_TAGS__(i); }); };
         window.__ORBIT_TAGFILTER__ = function (key) { toggleTagFilter(key); return Object.keys(state.tagFilter); };
         window.__ORBIT_NODEOPACITY__ = function (id) { try { var o = state.network.body.nodes[String(id)].options.opacity; return o == null ? 1 : o; } catch (e) { return "err"; } };
         window.__ORBIT_VISIBLE__ = function () { return state.snapshot ? currentNodeIds(state.snapshot).length : 0; };
@@ -811,6 +830,7 @@
     /* Your own record has no Delete, and Edit opens Account rather than the
      * contact form. */
     var deleteAction = $('[data-action="delete-contact"]'); if (deleteAction) deleteAction.hidden = isMe(id);
+    var pathAction = $('[data-action="show-path"]'); if (pathAction) pathAction.hidden = isMe(id);
     var editAction = $('[data-action="edit-person"]'); if (editAction) editAction.textContent = isMe(id) ? "Edit my details" : "Edit profile";
     setText("#dossier-role", [profile.header.role, profile.header.organisation, profile.header.location, profile.header.relationship].filter(Boolean).join(" · ") || (isOrg ? "Organisation in your network" : "Person in your network"));
     var tagBox = $("#dossier-tags");
@@ -1373,6 +1393,7 @@
     if (hasPhoto) items.push({ label: "Remove photo", fn: function () { removePhoto(id); } });
     items.push({ label: "Choose icon…", fn: function () { showIconPicker(id, x, y); } });
     items.push({ label: "Tags…", fn: function () { showTagPicker(id, x, y); } });
+    if (!mine) items.push({ label: "How do I know them?", fn: function () { showPathTo(id); } });
     /* You sit at the centre by definition, so the ring and pin controls — and
      * deletion — are not yours. The chart controls take their place. */
     if (mine) {
@@ -1395,6 +1416,13 @@
     /* With exactly two people selected, offer the merge in both directions so
      * which profile survives is never a guess. */
     var picked = Object.keys(state.selectedIds);
+    /* Anything you can do to one person, you should be able to do to the set. */
+    if (picked.length > 1 && picked.indexOf(String(id)) !== -1) {
+      items = [
+        { label: "Tag these " + picked.length + " people…", fn: function () { showBulkTagPicker(picked, x, y); } },
+        "-"
+      ].concat(items);
+    }
     if (picked.length === 2 && picked.indexOf(String(id)) !== -1) {
       var other = picked[0] === String(id) ? picked[1] : picked[0];
       items = [
@@ -1774,6 +1802,203 @@
       reader.readAsText(file);
     });
   }
+  /* ---- Every shortcut in one place ----
+   * Read straight off the handlers below, so the card cannot drift from the
+   * behaviour. Half of this app is gestures; nothing announced them until now. */
+  var SHORTCUTS = [
+    { group: "Getting around", rows: [
+      { keys: ["←", "→"], what: "Step to the previous or next contact, wrapping" },
+      { keys: ["Esc"], what: "Back out: picker, menu, selection, tag filter, path, panel" },
+      { keys: ["?"], what: "Open this card" },
+      { keys: ["Right-drag"], what: "Pan the chart" },
+      { keys: ["Scroll"], what: "Zoom in and out" }
+    ] },
+    { group: "Selecting", rows: [
+      { keys: ["Click"], what: "Open a person's profile" },
+      { keys: ["Ctrl", "Click"], what: "Add a person to the selection" },
+      { keys: ["Left-drag"], what: "Box-select everyone inside the box" },
+      { keys: ["Right-click"], what: "The full menu for a person, a link or the chart" },
+      { keys: ["Long-press"], what: "The same menu on a touchscreen" }
+    ] },
+    { group: "Building the network", rows: [
+      { keys: ["Shift", "Click"], what: "Start a link from a person, then click who they know" },
+      { keys: ["Drag"], what: "Move a person; drop them on a ring to pin them there" },
+      { keys: ["Del"], what: "Delete the selected person, link, or whole selection" },
+      { keys: ["Ctrl", "Z"], what: "Undo" },
+      { keys: ["Ctrl", "Y"], what: "Redo" }
+    ] },
+    { group: "With several selected", rows: [
+      { keys: ["Tags…"], what: "Tag everyone in the selection at once" },
+      { keys: ["Right-click"], what: "With exactly two: merge them into one profile, either direction" }
+    ] }
+  ];
+  function renderShortcuts() {
+    var body = $("#shortcuts-body"); if (!body) return;
+    body.innerHTML = SHORTCUTS.map(function (section) {
+      return '<div class="shortcut-group"><h3>' + esc(section.group) + '</h3>' + section.rows.map(function (row) {
+        return '<div class="shortcut-row"><span>' + esc(row.what) + '</span><span class="shortcut-keys">' +
+          row.keys.map(function (k) { return "<kbd>" + esc(k) + "</kbd>"; }).join("") + '</span></div>';
+      }).join("") + '</div>';
+    }).join("");
+  }
+  function openShortcuts() { renderShortcuts(); var m = $("#shortcuts-modal"); if (m) { m.hidden = false; var c = m.querySelector("[data-action=close-shortcuts]"); if (c) c.focus(); } }
+  function closeShortcuts() { var m = $("#shortcuts-modal"); if (m) m.hidden = true; }
+
+  /* ================== 2. Tagging a whole selection at once ================= */
+  /* Tagging thirty people one right-click at a time is not tagging. If any of
+   * them lack the tag they all gain it; if they all have it, they all lose it. */
+  function bulkTag(ids, tag) {
+    if (!state.store || !T) return;
+    var clean = T.clean(tag); if (!clean) return;
+    var people = ids.map(personById).filter(Boolean);
+    if (!people.length) return;
+    var adding = people.some(function (person) { return !T.has(tagsOf(person), clean); });
+    pushUndo();
+    var part = { entities: [], links: [] };
+    people.forEach(function (person) {
+      var next = adding ? T.add(tagsOf(person), clean) : T.remove(tagsOf(person), clean);
+      if (next.length) part.entities.push({ id: String(person.id), type: "person", label: person.label, attrs: { tags: next } });
+      else if (person.attrs) delete person.attrs.tags;
+    });
+    state.store.merge(part);
+    render();
+    setText("#sync-status", (adding ? "TAGGED " : "UNTAGGED ") + people.length + " · " + clean.toUpperCase());
+  }
+  function showBulkTagPicker(ids, x, y) {
+    closeCtxMenu(); closeIconPicker();
+    if (!T) return;
+    var census = tagCensus();
+    setTimeout(function () {
+      var pop = document.createElement("div");
+      pop.className = "ctx-menu tag-picker";
+      pop.setAttribute("role", "menu");
+      census.forEach(function (entry) {
+        var row = document.createElement("div");
+        row.className = "ctx-item tag-row";
+        row.setAttribute("role", "menuitem"); row.tabIndex = 0;
+        row.innerHTML = '<i class="tag-dot" style="--tag-colour:' + esc(entry.colour) + '"></i><span>' + esc(entry.tag) + '</span>';
+        function go() { closeIconPicker(); bulkTag(ids, entry.tag); }
+        row.addEventListener("click", go);
+        row.addEventListener("keydown", function (e) { if (e.key === "Enter") { e.preventDefault(); go(); } });
+        pop.appendChild(row);
+      });
+      if (census.length) { var sep = document.createElement("div"); sep.className = "ctx-sep"; pop.appendChild(sep); }
+      var add = document.createElement("div");
+      add.className = "ctx-item"; add.textContent = "New tag…"; add.setAttribute("role", "menuitem"); add.tabIndex = 0;
+      function invent() {
+        closeIconPicker();
+        var value = window.prompt("Tag these " + ids.length + " people", "");
+        if (value != null) T.parse(value).forEach(function (tag) { bulkTag(ids, tag); });
+      }
+      add.addEventListener("click", invent);
+      add.addEventListener("keydown", function (e) { if (e.key === "Enter") { e.preventDefault(); invent(); } });
+      pop.appendChild(add);
+      document.body.appendChild(pop); iconPickerEl = pop;
+      var mw = pop.offsetWidth, mh = pop.offsetHeight;
+      pop.style.left = Math.min(x, window.innerWidth - mw - 8) + "px";
+      pop.style.top = Math.min(y, window.innerHeight - mh - 8) + "px";
+      var first = pop.querySelector(".ctx-item"); if (first) first.focus();
+    }, 0);
+  }
+
+  /* ===================== 3. Sweeping for duplicates ======================= */
+  /* The same scorer the import review uses, turned on the vault itself. A pair
+   * you say is not a duplicate stays dismissed. */
+  var DUPES_KEY = "orbit_not_duplicates_v1";
+  function dismissedPairs() { try { var v = JSON.parse(window.localStorage.getItem(DUPES_KEY) || "[]"); return Array.isArray(v) ? v : []; } catch (e) { return []; } }
+  function pairKey(a, b) { return [String(a), String(b)].sort().join("||"); }
+  function dismissPair(a, b) { var list = dismissedPairs(); list.push(pairKey(a, b)); try { window.localStorage.setItem(DUPES_KEY, JSON.stringify(list)); } catch (e) {} }
+  function restoreDismissed() { try { window.localStorage.removeItem(DUPES_KEY); } catch (e) {} renderDupes(); }
+  function duplicateCandidates() {
+    var M = window.OrbitContactMatching;
+    if (!M || !M.duplicatePairs || !state.snapshot) return [];
+    var people = state.snapshot.entities.filter(function (e) { return D.isPerson(e) && !isMe(e.id); });
+    var dismissed = dismissedPairs();
+    return M.duplicatePairs(people).filter(function (pair) { return dismissed.indexOf(pairKey(pair.a.id, pair.b.id)) === -1; });
+  }
+  function renderDupes() {
+    var list = $("#dupes-list"), summary = $("#dupes-summary");
+    if (!list) return;
+    var pairs = duplicateCandidates();
+    if (summary) setText("#dupes-summary", pairs.length
+      ? formatCount(pairs.length) + " pair" + (pairs.length === 1 ? "" : "s") + " look like one person twice. Merging keeps every unique detail from both."
+      : "Nothing looks like a duplicate. Contacts are matched on email, phone, source record and name.");
+    list.innerHTML = pairs.map(function (pair) {
+      return '<div class="dupe-row" data-pair="' + esc(pairKey(pair.a.id, pair.b.id)) + '">' +
+        '<div class="dupe-pair"><strong>' + esc(pair.a.label || "Unnamed") + '</strong><em>and</em><strong>' + esc(pair.b.label || "Unnamed") + '</strong></div>' +
+        '<div class="dupe-why">' + esc(pair.reason) + '</div>' +
+        '<div class="dupe-actions">' +
+        '<button type="button" class="toolbar-button" data-merge-into="' + esc(pair.a.id) + '" data-merge-from="' + esc(pair.b.id) + '">Keep ' + esc(pair.a.label || "the first") + '</button>' +
+        '<button type="button" class="toolbar-button" data-merge-into="' + esc(pair.b.id) + '" data-merge-from="' + esc(pair.a.id) + '">Keep ' + esc(pair.b.label || "the second") + '</button>' +
+        '<button type="button" class="toolbar-button" data-not-a="' + esc(pair.a.id) + '" data-not-b="' + esc(pair.b.id) + '">Not a duplicate</button>' +
+        '</div></div>';
+    }).join("") || '<div class="dupes-empty">Nothing to review.</div>';
+  }
+  function openDupes() { renderDupes(); var m = $("#dupes-modal"); if (m) { m.hidden = false; var c = m.querySelector("[data-action=close-dupes]"); if (c) c.focus(); } }
+  function closeDupes() { var m = $("#dupes-modal"); if (m) m.hidden = true; }
+
+  /* ================ 4. How do I know them? (the chain) ==================== */
+  function showPathTo(id) {
+    if (!state.snapshot) return;
+    var chain = D.shortestPath(state.snapshot.links.map(function (l) { return { from: normaliseId(l.from), to: normaliseId(l.to) }; }), D.ME_ID, String(id));
+    var strip = $("#path-strip");
+    if (!chain || chain.length < 2) {
+      state.path = null;
+      if (strip) strip.hidden = true;
+      render();
+      setText("#sync-status", "NO CHAIN OF RELATIONSHIPS REACHES " + personLabel(id).toUpperCase());
+      return;
+    }
+    /* Only people belong in a chain the user is asked to read. */
+    var names = chain.map(function (nodeId) { return isMe(nodeId) ? "You" : personLabel(nodeId); });
+    state.path = { ids: chain, set: chain.reduce(function (map, nodeId) { map[nodeId] = true; return map; }, Object.create(null)) };
+    if (strip) {
+      strip.hidden = false;
+      $("#path-strip-chain").innerHTML = names.map(function (name) { return esc(name); }).join('<i>\u2192</i>');
+    }
+    render();
+    var between = chain.length - 2;
+    setText("#sync-status", between === 0 ? "DIRECT CONNECTION" : between + (between === 1 ? " PERSON" : " PEOPLE") + " BETWEEN YOU");
+  }
+  function clearPath() {
+    if (!state.path) return;
+    state.path = null;
+    var strip = $("#path-strip"); if (strip) strip.hidden = true;
+    render();
+  }
+
+  /* ================== 5. Who is going cold ============================== */
+  /* A relationship at each ring has an allowance before it is worth a nudge
+   * (domain.js owns the numbers). This lists who is past theirs, worst first. */
+  function coldList() {
+    if (!state.snapshot) return [];
+    var last = D.lastInteractionByPerson(state.snapshot.entities, state.snapshot.links);
+    var now = Date.now();
+    return state.snapshot.entities.filter(function (e) { return D.isPerson(e) && !isMe(e.id); }).map(function (person) {
+      var summary = D.personSummary(person, state.snapshot.links);
+      var ring = String(D.attrs(person).ring || summary.ring);
+      var debt = D.contactDebt(ring, last[String(person.id)] == null ? null : last[String(person.id)], now);
+      return { id: String(person.id), label: person.label || "Unnamed", ring: ring, debt: debt };
+    }).filter(function (row) { return row.debt.days > 0; })
+      .sort(function (a, b) { return b.debt.days - a.debt.days || a.label.localeCompare(b.label); });
+  }
+  function coldSet() {
+    var map = Object.create(null);
+    if (state.coldMode) coldList().forEach(function (row) { map[row.id] = row; });
+    return map;
+  }
+  function toggleColdMode() {
+    state.coldMode = !state.coldMode;
+    var button = $('[data-action="going-cold"]');
+    if (button) button.setAttribute("aria-pressed", String(state.coldMode));
+    render();
+    if (!state.coldMode) { setText("#network-mode", state.opportunityMode ? "OPPORTUNITY VIEW" : "ORBIT VIEW"); setText("#sync-status", "READY"); return; }
+    var rows = coldList();
+    setText("#network-mode", "GOING COLD");
+    setText("#sync-status", rows.length
+      ? formatCount(rows.length) + " OVERDUE · LONGEST " + rows[0].label.toUpperCase() + " (" + rows[0].debt.days + "D PAST DUE)"
+      : "NOBODY IS OVERDUE");
+  }
   function visibleModal() {
     return $$(".modal-layer").filter(function (layer) { return !layer.hidden; })[0] || null;
   }
@@ -1784,7 +2009,8 @@
     var closers = {
       "person-modal": closeModal, "vault-modal": closeVault, "import-modal": closeImport,
       "record-modal": closeRecord, "account-modal": closeAccountModal,
-      "connections-modal": closeConnections, "recycle-modal": closeRecycleBin
+      "connections-modal": closeConnections, "recycle-modal": closeRecycleBin,
+      "shortcuts-modal": closeShortcuts, "dupes-modal": closeDupes
     };
     $$(".modal-layer").forEach(function (layer) {
       var close = closers[layer.id]; if (!close) return;
@@ -2125,6 +2351,27 @@
     $$('[data-action="recenter"]').forEach(function (button) { button.addEventListener("click", recenterView); });
     $$('[data-action="theme"]').forEach(function (button) { button.addEventListener("click", function () { var r = button.getBoundingClientRect(); showThemePicker(r.left, r.bottom + 6); }); });
     $$('[data-action="layout"]').forEach(function (button) { button.addEventListener("click", function () { var r = button.getBoundingClientRect(); showLayoutPicker(r.left, r.bottom + 6); }); });
+    $$('[data-action="shortcuts"]').forEach(function (button) { button.addEventListener("click", openShortcuts); });
+    $$('[data-action="close-shortcuts"]').forEach(function (button) { button.addEventListener("click", closeShortcuts); });
+    $$('[data-action="find-duplicates"]').forEach(function (button) { button.addEventListener("click", openDupes); });
+    $$('[data-action="close-dupes"]').forEach(function (button) { button.addEventListener("click", closeDupes); });
+    var resetDupes = $('[data-action="reset-dupes"]'); if (resetDupes) resetDupes.addEventListener("click", restoreDismissed);
+    var dupesList = $("#dupes-list");
+    if (dupesList) dupesList.addEventListener("click", function (event) {
+      var button = event.target.closest("[data-merge-into],[data-not-a]");
+      if (!button) return;
+      if (button.hasAttribute("data-not-a")) {
+        dismissPair(button.getAttribute("data-not-a"), button.getAttribute("data-not-b"));
+        renderDupes();
+        setText("#sync-status", "MARKED AS TWO DIFFERENT PEOPLE");
+        return;
+      }
+      mergeContacts(button.getAttribute("data-merge-into"), button.getAttribute("data-merge-from"));
+      renderDupes();
+    });
+    $$('[data-action="going-cold"]').forEach(function (button) { button.addEventListener("click", toggleColdMode); });
+    $$('[data-action="clear-path"]').forEach(function (button) { button.addEventListener("click", clearPath); });
+    var showPath = $('[data-action="show-path"]'); if (showPath) showPath.addEventListener("click", function () { if (state.selectedId) showPathTo(state.selectedId); });
     $$('[data-action="recycle-bin"]').forEach(function (button) { button.addEventListener("click", openRecycleBin); });
     $$('[data-action="close-recycle"]').forEach(function (button) { button.addEventListener("click", closeRecycleBin); });
     var emptyBin = $('[data-action="empty-bin"]'); if (emptyBin) emptyBin.addEventListener("click", trashClear);
@@ -2167,6 +2414,10 @@
           if (state.selectedId) { event.preventDefault(); removeContact(state.selectedId); return; }
         }
       }
+      if (event.key === "?" && !visibleModal()) {
+        var qtag = document.activeElement ? document.activeElement.tagName : "";
+        if (qtag !== "INPUT" && qtag !== "TEXTAREA") { event.preventDefault(); openShortcuts(); return; }
+      }
       if ((event.key === "ArrowLeft" || event.key === "ArrowRight") && !visibleModal() && (state.selectedId || Object.keys(state.selectedIds).length || state.cycleAnchor)) {
         var atag = document.activeElement ? document.activeElement.tagName : "";
         if (atag !== "INPUT" && atag !== "TEXTAREA" && atag !== "SELECT") { event.preventDefault(); cycleConnection(event.key === "ArrowLeft" ? -1 : 1); return; }
@@ -2175,12 +2426,14 @@
       if (iconPickerEl) { closeIconPicker(); return; }
       if (ctxMenuEl) { closeCtxMenu(); return; }
       if (Object.keys(state.selectedIds).length) { clearSelectedIds(); return; }
+      if (state.path) { clearPath(); return; }
+      if (state.coldMode) { toggleColdMode(); return; }
       if (activeTags().length) { clearTagFilter(); setText("#sync-status", "TAG FILTER CLEARED"); return; }
       if (state.linkFrom) { endLinkFrom(); return; }
       if (state.selectedEdge) { clearEdgeSelection(); return; }
       var empty = $("#network-empty");
       if (empty && !empty.hidden && !visibleModal()) { dismissEmpty(); return; }
-      closeModal(); closeRecord(); closeVault(); closeImport(); closeAccountModal(); closeConnections(); closeRecycleBin(); closeDossier();
+      closeModal(); closeRecord(); closeVault(); closeImport(); closeAccountModal(); closeConnections(); closeRecycleBin(); closeShortcuts(); closeDupes(); closeDossier();
     });
   }
   function startWorkspace() {

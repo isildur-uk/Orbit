@@ -31,9 +31,9 @@
     return (date.year ? String(date.year).padStart(4, "0") + "-" : "") + String(date.month).padStart(2, "0") + "-" + String(date.day).padStart(2, "0");
   }
   function emailValues(person) { return (person.emailAddresses || []).map(function (item) { return text(item.value).toLowerCase(); }).filter(Boolean); }
-  function classification(displayName, organisation, emails) {
-    if (!Classify) return { category: displayName ? "individual" : "unknown" };
-    return Classify.classify({ name: displayName, organisation: organisation, emails: emails });
+  function classification(displayName, organisation, emails, details) {
+    if (!Classify) return { category: displayName ? "individual" : "email" };
+    return Classify.classify({ name: displayName, organisation: organisation, emails: emails, details: details });
   }
   function candidate(person) {
     person = person || {};
@@ -46,7 +46,10 @@
     var emails = emailValues(person), emailValuesDisplay = (person.emailAddresses || []).map(function (item) { return text(item.value); }).filter(Boolean);
     var address = valueOf(person.addresses);
     var displayName = text(name.displayName || [name.givenName, name.middleName, name.familyName].filter(Boolean).join(" "));
-    var kind = classification(displayName, text(organisation.name), emails);
+    var kind = classification(displayName, text(organisation.name), emails, [
+      phoneValues.join(" "), text(organisation.title), text(organisation.name), address,
+      urls.join(" "), birthday(first(person.birthdays)), notes.join(" ")
+    ]);
     if (kind.skip) return { skipped: kind.skip };
     if (!displayName) displayName = text(organisation.name) || (emailValuesDisplay[0] ? emailValuesDisplay[0].split("@")[0] : "");
     if (!displayName) return { skipped: "no identifying details" };

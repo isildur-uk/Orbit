@@ -123,8 +123,29 @@
     return out;
   }
 
+  /* Every pair of people already in the vault that looks like one person twice.
+   * Reuses the same scorer the import review uses, so a duplicate found here is
+   * a duplicate found there, with the same human reason attached. Each pair is
+   * reported once, strongest first. */
+  function duplicatePairs(people, minimumScore) {
+    var list = (people || []).slice(), floor = minimumScore == null ? 55 : minimumScore, out = [];
+    var keys = list.map(personKeys);
+    for (var i = 0; i < list.length; i++) {
+      for (var j = i + 1; j < list.length; j++) {
+        var result = score(keys[i], keys[j]);
+        if (result.score < floor) continue;
+        var reason = result.signals.slice().sort(function (a, b) { return b.w - a.w; }).map(function (s) { return s.why; })[0] || "Likely the same person";
+        out.push({ a: list[i], b: list[j], score: result.score, reason: reason });
+      }
+    }
+    return out.sort(function (x, y) {
+      return y.score - x.score || labelOf(x.a).localeCompare(labelOf(y.a));
+    });
+  }
+
   var api = {
     computeMatches: computeMatches,
+    duplicatePairs: duplicatePairs,
     matchAgainst: matchAgainst,
     normaliseName: normaliseName,
     normalisePhone: normalisePhone,
