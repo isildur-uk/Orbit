@@ -548,6 +548,11 @@
         }
         /* Fast path: shift-click a person to start a link, then click the target. */
         if (id && shift) { startLinkFrom(id); return; }
+        /* Ctrl/Cmd-click adds a person to the selection (box-select does the
+         * same for people sitting together). Select two, then right-click to
+         * merge them into one profile. */
+        var srcEvent = event.event && event.event.srcEvent;
+        if (id && String(id) !== D.ME_ID && srcEvent && (srcEvent.ctrlKey || srcEvent.metaKey)) { toggleSelectedId(String(id)); return; }
         if (id) {
           clearEdgeSelection(); clearSelectedIds();
           if (id === D.ME_ID) { closeDossier(); return; }
@@ -614,6 +619,11 @@
         window.__ORBIT_RESTORE__ = function (tid) { trashRestore(tid); return trashCount(); };
         window.__ORBIT_PEOPLE__ = function () { return state.snapshot ? state.snapshot.entities.filter(D.isPerson).length : 0; };
         window.__ORBIT_SELECTED__ = function () { return state.selectedId; };
+        window.__ORBIT_TOGGLE__ = function (id) { toggleSelectedId(id); return Object.keys(state.selectedIds); };
+        window.__ORBIT_NEIGHBOURS__ = function (id) { return neighboursOf(String(id)).map(personLabel); };
+        window.__ORBIT_MERGE__ = function (survivor, absorbed) { mergeContacts(survivor, absorbed); return state.selectedId; };
+        window.__ORBIT_ATTRS__ = function (id) { var p = personById(id); return p ? D.attrs(p) : null; };
+        window.__ORBIT_PROFILE__ = function (id) { var P = window.OrbitNetworkProfile; return P ? P.buildProfile(state.snapshot, String(id)) : null; };
         window.__ORBIT_NODEAT__ = function (id) { try { var d = state.network.canvasToDOM(state.network.getPositions([id])[id]); return state.network.getNodeAt(d); } catch (e) { return "err:" + e.message; } };
       }
     } else {
@@ -1030,8 +1040,19 @@
     state.selectedIds = {};
     ids.forEach(function (id) { if (id !== D.ME_ID) state.selectedIds[id] = true; });
     var n = Object.keys(state.selectedIds).length;
-    if (n) { state.selectedId = ""; closeDossier(); setText("#sync-status", n + " SELECTED · PRESS DELETE TO REMOVE"); }
+    if (n) { state.selectedId = ""; closeDossier(); setText("#sync-status", selectionHint(n)); }
     renderGraph(state.snapshot);
+  }
+  function selectionHint(n) { return n === 2 ? "2 SELECTED · RIGHT-CLICK TO MERGE" : n + " SELECTED · PRESS DELETE TO REMOVE"; }
+  /* Ctrl/Cmd-click toggles one person in or out of the selection, so two people
+   * anywhere on the chart can be picked without a box big enough to catch both. */
+  function toggleSelectedId(id) {
+    id = String(id);
+    if (state.selectedIds[id]) delete state.selectedIds[id]; else state.selectedIds[id] = true;
+    var n = Object.keys(state.selectedIds).length;
+    if (n) { state.selectedId = ""; closeDossier(); }
+    renderGraph(state.snapshot);
+    setText("#sync-status", n ? selectionHint(n) : "READY");
   }
   function clearSelectedIds() { if (Object.keys(state.selectedIds).length) { state.selectedIds = {}; renderGraph(state.snapshot); } }
   function deleteSelectedIds() {
@@ -1112,6 +1133,17 @@
     items.push({ label: pinned ? "Unpin position" : "Pin position", fn: function () { togglePin(id); } });
     items.push("-");
     items.push({ label: "Delete contact", danger: true, fn: function () { removeContact(id); } });
+    /* With exactly two people selected, offer the merge in both directions so
+     * which profile survives is never a guess. */
+    var picked = Object.keys(state.selectedIds);
+    if (picked.length === 2 && picked.indexOf(String(id)) !== -1) {
+      var other = picked[0] === String(id) ? picked[1] : picked[0];
+      items = [
+        { label: "Merge " + personLabel(other) + " into " + personLabel(id), fn: function () { mergeContacts(id, other); } },
+        { label: "Merge " + personLabel(id) + " into " + personLabel(other), fn: function () { mergeContacts(other, id); } },
+        "-"
+      ].concat(items);
+    }
     showCtxMenu(x, y, items);
   }
   function meCtxMenu(x, y) {
@@ -1265,6 +1297,133 @@
     var n = trashCount(), btn = $('[data-action="recycle-bin"]'), badge = $("#recycle-count");
     if (badge) { badge.textContent = n ? String(n) : ""; badge.hidden = !n; }
     if (btn) btn.setAttribute("title", n ? "Recycle bin (" + n + ")" : "Recycle bin (empty)");
+  }
+  /* ---- Merging two contacts into one profile ----
+   * Everything unique on the absorbed record is carried over: a second email or
+   * number joins the survivor's field as another chip, notes and interests are
+   * appended, and their relationships, facts and interactions are re-parented.
+   * The absorbed record goes to the recycle bin as a bare profile — undo is the
+   * clean reversal, and it reverses the whole merge in one step. */
+  var MERGE_MULTI = ["email", "phone", "phoneOther", "whatsapp", "signal", "instagram", "facebook", "x", "tiktok", "website"];
+  var MERGE_APPEND = ["note", "interests"];
+  var MERGE_ADDRESS = { address: "Home", workAddress: "Work" };
+  function splitValues(value) {
+    return String(value == null ? "" : value).split(/[;,]/).map(function (v) { return v.trim(); }).filter(Boolean);
+  }
+  function joinUnique(mine, theirs) {
+    var seen = Object.create(null), out = [];
+    splitValues(mine).concat(splitValues(theirs)).forEach(function (v) {
+      var k = v.toLowerCase(); if (seen[k]) return; seen[k] = true; out.push(v);
+    });
+    return out.join(", ");
+  }
+  function sameText(a, b) { return String(a == null ? "" : a).trim().toLowerCase() === String(b == null ? "" : b).trim().toLowerCase(); }
+  function appendText(mine, theirs) {
+    var a = String(mine == null ? "" : mine).trim(), b = String(theirs == null ? "" : theirs).trim();
+    if (!b || a.toLowerCase().indexOf(b.toLowerCase()) !== -1) return a;
+    return a ? a + " · " + b : b;
+  }
+  /* Only the differences are returned, so the survivor's own values stand and
+   * the store's merge writes nothing it does not need to. */
+  function mergeAttrs(survivor, absorbed) {
+    var sa = D.attrs(survivor), aa = D.attrs(absorbed), out = {}, extraAddresses = [];
+    Object.keys(aa).forEach(function (key) {
+      var mine = sa[key], theirs = aa[key];
+      if (theirs == null || theirs === "" || (Array.isArray(theirs) && !theirs.length)) return;
+      if (MERGE_MULTI.indexOf(key) !== -1) {
+        var joined = joinUnique(mine, theirs);
+        if (joined && joined !== String(mine == null ? "" : mine)) out[key] = joined;
+        return;
+      }
+      if (MERGE_APPEND.indexOf(key) !== -1) {
+        var appended = appendText(mine, theirs);
+        if (appended && appended !== String(mine == null ? "" : mine)) out[key] = appended;
+        return;
+      }
+      if (MERGE_ADDRESS[key]) {
+        if (!String(mine == null ? "" : mine).trim()) out[key] = theirs;
+        else if (!sameText(mine, theirs)) extraAddresses.push({ label: MERGE_ADDRESS[key], value: String(theirs) });
+        return;
+      }
+      if (Array.isArray(theirs)) {
+        var union = (Array.isArray(mine) ? mine : []).slice();
+        theirs.forEach(function (item) {
+          var json = JSON.stringify(item);
+          if (!union.some(function (x) { return JSON.stringify(x) === json; })) union.push(item);
+        });
+        if (union.length) out[key] = union;
+        return;
+      }
+      if (mine == null || mine === "") out[key] = theirs;
+    });
+    if (extraAddresses.length) {
+      var base = out.addresses || (Array.isArray(sa.addresses) ? sa.addresses.slice() : []);
+      out.addresses = base.concat(extraAddresses);
+    }
+    /* A different name on the absorbed record is an alias worth keeping. */
+    var alias = String(absorbed.label || "").trim();
+    if (alias && !sameText(alias, survivor.label)) {
+      var note = appendText(out.note != null ? out.note : sa.note, "Also known as " + alias);
+      if (note) out.note = note;
+    }
+    return out;
+  }
+  function mergeContacts(survivorId, absorbedId) {
+    if (!state.store || !state.snapshot) return;
+    survivorId = String(survivorId); absorbedId = String(absorbedId);
+    if (survivorId === absorbedId || survivorId === D.ME_ID || absorbedId === D.ME_ID) return;
+    var survivor = personById(survivorId), absorbed = personById(absorbedId);
+    if (!survivor || !absorbed) return;
+    var absorbedName = String(absorbed.label || "this contact");
+    pushUndo();
+    /* Their relationships become the survivor's. A link between the two
+     * themselves has nowhere left to point. */
+    var links = [];
+    state.snapshot.links.forEach(function (l) {
+      var from = normaliseId(l.from), to = normaliseId(l.to);
+      if (from !== absorbedId && to !== absorbedId) return;
+      var newFrom = from === absorbedId ? survivorId : from, newTo = to === absorbedId ? survivorId : to;
+      if (newFrom === newTo) return;
+      var type = l.type || "KNOWS";
+      var contrib = Array.isArray(l.contribs) ? l.contribs[0] : l.contrib;
+      if (String(type).toUpperCase() === "KNOWS") {
+        var k = relationshipKey(newFrom, newTo); newFrom = k[0]; newTo = k[1];
+        contrib = relationshipContrib(newFrom, newTo);   /* so it stays removable */
+      } else if (contrib === "ent:" + absorbedId) { contrib = "ent:" + survivorId; }
+      links.push({ id: state.store.linkId({ from: newFrom, to: newTo, type: type }), from: newFrom, to: newTo, type: type, label: l.label, source: l.source, createdBy: l.createdBy || "personal-network", contrib: contrib, attrs: Object.assign({}, l.attrs || {}) });
+    });
+    /* Facts and interactions filed under the absorbed record are re-parented, so
+     * they stay with the survivor instead of being swept away with it. */
+    var moved = 0;
+    state.snapshot.entities.forEach(function (e) {
+      if (String(e.id) === absorbedId) return;
+      var list = e.contribs || (e.contrib ? [e.contrib] : []);
+      var at = list.indexOf("ent:" + absorbedId);
+      if (at === -1) return;
+      list[at] = "ent:" + survivorId;
+      e.contribs = list.filter(function (c, i) { return list.indexOf(c) === i; });
+      if (e.contrib === "ent:" + absorbedId) e.contrib = "ent:" + survivorId;
+      moved++;
+    });
+    var attrs = mergeAttrs(survivor, absorbed), gained = Object.keys(attrs).length;
+    var part = { entities: [], links: links };
+    if (gained) part.entities.push({ id: survivorId, type: "person", label: survivor.label, attrs: attrs });
+    state.store.merge(part);
+    /* Bin the absorbed record without its links — they belong to the survivor
+     * now, and undo is what puts a merge back the way it was. */
+    var record = captureForTrash(absorbedId);
+    if (record) { record.links = []; var bin = trashRead(); bin.unshift(record); trashWrite(bin); }
+    delete state.pinned[absorbedId]; delete state.positions[absorbedId]; delete state.ringAngle[absorbedId];
+    if (state.store.removeEntity) state.store.removeEntity(absorbedId);
+    else if (state.store.withdraw) state.store.withdraw("ent:" + absorbedId);
+    state.selectedIds = {};
+    state.selectedId = survivorId; state.cycleAnchor = survivorId; state.cycleIndex = -1;
+    render();
+    openDossier(survivorId);
+    updateTrashButton();
+    setText("#sync-status", "MERGED " + absorbedName.toUpperCase() + " INTO " + String(survivor.label || "").toUpperCase() +
+      (gained ? " · " + gained + " DETAIL" + (gained === 1 ? "" : "S") + " ADDED" : "") +
+      (moved ? " · " + moved + " RECORD" + (moved === 1 ? "" : "S") + " MOVED" : ""));
   }
   /* Where the ←/→ walk would land next once this person is gone; "" when the
    * network would be left with nobody. */

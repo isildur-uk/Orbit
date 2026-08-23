@@ -182,10 +182,17 @@
       reciprocityLabel: !knownDirections ? "Direction not recorded" : outbound && inbound ? "Inbound and outbound activity" : "One-way activity recorded"
     };
   }
+  /* One chip per value: a merged profile carries both numbers in one field, and
+   * imports often arrive with "a@x.com; b@y.com" in a single cell. */
+  function splitMethodValues(value) {
+    return text(value).split(/\s*[;,]\s*/).map(function (v) { return v.trim(); }).filter(Boolean);
+  }
   function contactMethods(person) {
     var a = attrs(person), out = [];
     ["email", "phone", "phoneOther", "whatsapp", "signal", "facebook", "instagram", "x", "tiktok", "website"].forEach(function (key) {
-      array(a[key]).forEach(function (value) { if (value) out.push({ kind: key, value: text(value) }); });
+      array(a[key]).forEach(function (value) {
+        splitMethodValues(value).forEach(function (v) { out.push({ kind: key, value: v }); });
+      });
     });
     array(a.socialProfiles).forEach(function (item) {
       if (!item) return;
