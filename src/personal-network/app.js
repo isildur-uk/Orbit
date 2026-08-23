@@ -41,6 +41,44 @@
       ["phone", "phoneOther", "whatsapp", "signal", "instagram", "facebook", "website", "x", "address", "workAddress", "interests", "note"].forEach(function (key) { setFormValue(form, key, profile[key]); });
     }
   }
+  /* ---- You, as an entity ----
+   * Your node used to be drawn from nothing each render, so it could not be
+   * opened, selected or merged into. It is a person record like any other now,
+   * projected from the account profile and written back to it, so Account and
+   * the chart never tell different stories. */
+  var ME_PROFILE_KEYS = ["phone", "phoneOther", "whatsapp", "signal", "instagram", "facebook", "website", "x", "address", "workAddress", "interests", "note"];
+  function meAttrsFromAccount(account) {
+    var profile = (account && account.profile) || {}, attrs = { entityKind: "individual", isMe: true };
+    var email = account && account.email ? String(account.email).trim() : "";
+    if (email) attrs.email = email;
+    ME_PROFILE_KEYS.forEach(function (key) {
+      var value = String(profile[key] == null ? "" : profile[key]).trim();
+      if (value) attrs[key] = value;
+    });
+    return attrs;
+  }
+  function ensureMeEntity() {
+    if (!state.store) return;
+    var account = A && A.current ? A.current() : null;
+    var existing = state.store.entities ? state.store.entities().filter(function (e) { return String(e.id) === D.ME_ID; })[0] : null;
+    /* upsert never rewrites an existing label, so set it here when the account
+     * name has changed. */
+    if (existing && account && account.name && existing.label !== account.name) existing.label = String(account.name);
+    var label = (existing && existing.label) || (account && account.name) || "You";
+    state.store.merge({ entities: [{ id: D.ME_ID, type: "person", label: label, identity: "me", source: "manual", createdBy: "personal-network", attrs: meAttrsFromAccount(account) }], links: [] });
+  }
+  /* Anything that lands on your record — an edit, a merge — goes back to the
+   * account profile so it survives on another device. Best effort: an offline
+   * or local account simply keeps it in the vault. */
+  function syncMeToAccount() {
+    if (!A || !A.updateProfile || !A.current) return;
+    var account = A.current(), me = personById(D.ME_ID);
+    if (!account || !me) return;
+    var attrs = D.attrs(me), profile = account.profile || {}, values = { name: me.label || account.name };
+    ME_PROFILE_KEYS.forEach(function (key) { values[key] = attrs[key] != null ? String(attrs[key]) : String(profile[key] == null ? "" : profile[key]); });
+    Promise.resolve(A.updateProfile(values)).then(function (updated) { if (updated) updateAccountUI(updated); }).catch(function () {});
+  }
+  function isMe(id) { return String(id) === D.ME_ID; }
   function markBooted() {
     window.__ORBIT_BOOTED__ = true;
     var boot = $("#boot-screen");
@@ -111,7 +149,7 @@
   function saveAccountProfile(form) {
     var data = new FormData(form), values = { name: data.get("name") };
     ["phone", "phoneOther", "whatsapp", "signal", "instagram", "facebook", "website", "x", "address", "workAddress", "interests", "note"].forEach(function (key) { values[key] = data.get(key); });
-    A.updateProfile(values).then(function (account) { updateAccountUI(account); closeAccountModal(); setText("#sync-status", "PROFILE SAVED"); }).catch(function (error) { var status = $("#account-status"); if (status) { status.textContent = error && error.message ? error.message : "The profile could not be saved."; status.classList.add("error"); } });
+    A.updateProfile(values).then(function (account) { updateAccountUI(account); closeAccountModal(); ensureMeEntity(); render(); setText("#sync-status", "PROFILE SAVED"); }).catch(function (error) { var status = $("#account-status"); if (status) { status.textContent = error && error.message ? error.message : "The profile could not be saved."; status.classList.add("error"); } });
   }
   function connectionStatusLabel(status) {
     return ({ "not-connected": "NOT CONNECTED", "needs-setup": "SETUP NEEDED", connected: "CONNECTED", syncing: "SYNCING" })[status] || "NOT CONNECTED";
@@ -456,7 +494,13 @@
     var visibleSet = Object.create(null);
     visibleIds.forEach(function (id) { visibleSet[id] = true; });
     visibleSet[D.ME_ID] = true;
-    var people = snapshot.entities.filter(function (entity) { return visibleSet[String(entity.id)] && D.isPerson(entity); });
+    /* Your record is drawn as the centre node below, never as one more person
+     * in the ring — two nodes with the same id would collide. */
+    var people = snapshot.entities.filter(function (entity) { return visibleSet[String(entity.id)] && D.isPerson(entity) && !isMe(entity.id); });
+    /* When something is selected, everything else steps back. With a hundred
+     * people on screen a slightly thicker border is not enough to find one. */
+    var hasSelection = !!state.selectedId || Object.keys(state.selectedIds).length > 0;
+    function dimmed(isSelected) { return (state.query.trim() || hasSelection) && !isSelected ? 0.28 : 1; }
     /* SOLAR-parity computed layouts (peacock, tree, grid, force, …) produce a
      * full positions map for ME + every visible person; orbit/free are handled
      * by the ring/saved-position logic below. */
@@ -470,7 +514,12 @@
     }
     var mePos = (layoutPos && layoutPos[D.ME_ID]) ? layoutPos[D.ME_ID] : mePosition();
     var meFixed = computedKind ? !layoutPhysics : (state.layout === "orbit" || !!state.pinned[D.ME_ID]);
-    var nodes = [{ id: D.ME_ID, label: "ME", x: mePos.x, y: mePos.y, fixed: meFixed, shape: "dot", size: 24, borderWidth: 2, color: { background: "#da291c", border: "#ffffff", highlight: { background: "#ec3325", border: "#ffffff" } }, font: { color: "#ffffff", size: 13, face: "Inter Var", bold: true, strokeWidth: 5, strokeColor: "#141414" }, shadow: { enabled: true, color: "rgba(218,41,28,.55)", size: 26, x: 0, y: 0 } }];
+    var meEntity = snapshot.entities.filter(function (entity) { return isMe(entity.id); })[0] || null;
+    var meSelected = isMe(state.selectedId) || !!state.selectedIds[D.ME_ID];
+    var mePhoto = meEntity && photoReady(D.attrs(meEntity).photo) ? D.attrs(meEntity).photo : "";
+    var meNode = { id: D.ME_ID, label: meEntity && meEntity.label ? String(meEntity.label) : "ME", x: mePos.x, y: mePos.y, fixed: meFixed, shape: "dot", size: meSelected ? 30 : 24, borderWidth: meSelected ? 5 : 2, opacity: Math.max(dimmed(meSelected), 0.62), color: { background: "#da291c", border: "#ffffff", highlight: { background: "#ec3325", border: "#ffffff" } }, font: { color: "#ffffff", size: meSelected ? 15 : 13, face: "Inter Var", bold: true, strokeWidth: 5, strokeColor: "#141414" }, shadow: { enabled: true, color: meSelected ? "rgba(255,255,255,.8)" : "rgba(218,41,28,.55)", size: meSelected ? 34 : 26, x: 0, y: 0 } };
+    if (mePhoto) { meNode.shape = "circularImage"; meNode.image = mePhoto; meNode.size = meSelected ? 30 : 24; }
+    var nodes = [meNode];
     var byId = Object.create(null);
     people.forEach(function (person, index) {
       var summary = D.personSummary(person, snapshot.links);
@@ -501,17 +550,17 @@
       var baseBg = opportunity ? "#da291c" : (organisation ? "#241f16" : (inner ? "#3a3330" : "#2b2b2b"));
       var baseBorder = selected ? "#ffffff" : (ringCol || (opportunity ? "#ff6a5e" : (organisation ? "#c9a24b" : (inner ? "#c98b84" : "#8a8a8a"))));
       var photo = photoReady(D.attrs(person).photo) ? D.attrs(person).photo : "";
-      var node = { id: String(person.id), label: String(person.label || "Unnamed person"), x: position.x, y: position.y, fixed: nodeFixed, size: selected ? 17 : (opportunity ? 14 : 9 + Math.round(summary.score / 20)), borderWidth: selected ? 2.6 : 1.4, color: { background: baseBg, border: baseBorder, highlight: { background: "#da291c", border: "#ffffff" }, hover: { background: baseBg, border: "#ffffff" } }, opacity: state.query && !selected ? .4 : 1, font: { color: selected ? "#ffffff" : "#e4e4e4", size: selected ? 14 : 12, face: "Inter Var", vadjust: -2, strokeWidth: 4, strokeColor: "#181818" }, shadow: { enabled: true, color: "rgba(0,0,0,.5)", size: 7, x: 0, y: 2 }, title: String(summary.role || (organisation ? "Organisation" : "")) };
-      if (photo) { node.shape = "circularImage"; node.image = photo; node.size = selected ? 22 : 18; node.borderWidth = selected ? 3 : 2; if (ringCol && !selected) node.color.border = ringCol; }
+      var node = { id: String(person.id), label: String(person.label || "Unnamed person"), x: position.x, y: position.y, fixed: nodeFixed, size: selected ? 24 : (opportunity ? 14 : 9 + Math.round(summary.score / 20)), borderWidth: selected ? 4 : 1.4, color: { background: baseBg, border: baseBorder, highlight: { background: "#da291c", border: "#ffffff" }, hover: { background: baseBg, border: "#ffffff" } }, opacity: dimmed(selected), font: { color: selected ? "#ffffff" : "#e4e4e4", size: selected ? 16 : 12, face: "Inter Var", bold: selected, vadjust: -2, strokeWidth: selected ? 6 : 4, strokeColor: "#181818" }, shadow: selected ? { enabled: true, color: "rgba(255,255,255,.8)", size: 30, x: 0, y: 0 } : { enabled: true, color: "rgba(0,0,0,.5)", size: 7, x: 0, y: 2 }, title: String(summary.role || (organisation ? "Organisation" : "")) };
+      if (photo) { node.shape = "circularImage"; node.image = photo; node.size = selected ? 28 : 18; node.borderWidth = selected ? 4 : 2; if (ringCol && !selected) node.color.border = ringCol; }
       else if (window.OrbitIcons) {
         var Icons = window.OrbitIcons;
         var iconKey = String(D.attrs(person).icon || Icons.defaultKey(kind));
         var chipRing = ringCol || (opportunity ? "#ff6a5e" : (organisation ? "#c9a24b" : (inner ? "#c98b84" : "#8a8a8a")));
         var chipUrl = Icons.chip(iconKey, { bg: organisation ? "#241f16" : "#242424", ring: chipRing, glyph: organisation ? "#e6c877" : "#e8e8e8" });
         if (photoReady(chipUrl)) {
-          node.shape = "circularImage"; node.image = chipUrl; node.size = selected ? 21 : 16;
+          node.shape = "circularImage"; node.image = chipUrl; node.size = selected ? 27 : 16;
           node.color = { border: selected ? "#ffffff" : chipRing, background: "transparent", highlight: { border: "#ffffff" }, hover: { border: "#ffffff" } };
-          node.borderWidth = selected ? 2.5 : 0;
+          node.borderWidth = selected ? 4 : 0;
         } else { node.shape = organisation ? "square" : "dot"; }
       } else { node.shape = organisation ? "square" : "dot"; }
       nodes.push(node);
@@ -525,7 +574,8 @@
       var touchesMe = from === D.ME_ID || to === D.ME_ID;
       var colour = opportunity ? "rgba(218,41,28,.9)" : (touchesMe ? "rgba(255,255,255,.36)" : "rgba(255,255,255,.2)");
       var relType = String(D.attrs(link).relationshipType || "");
-      return { id: String(link.id), from: from, to: to, label: relType || undefined, width: opportunity ? 2.6 : (touchesMe ? 1.3 : 1.1), dashes: false, color: { color: colour, highlight: opportunity ? "#da291c" : "#ffffff", hover: "#ffffff", opacity: 1 }, font: relType ? { color: "#cfcfcf", size: 10, face: "Inter Var", strokeWidth: 4, strokeColor: "#181818", align: "middle" } : undefined, smooth: { enabled: true, type: "continuous", roundness: .28 }, hidden: false };
+      var onSelection = !hasSelection || from === String(state.selectedId) || to === String(state.selectedId) || !!state.selectedIds[from] || !!state.selectedIds[to];
+      return { id: String(link.id), from: from, to: to, label: relType || undefined, width: onSelection && hasSelection ? 2.2 : (opportunity ? 2.6 : (touchesMe ? 1.3 : 1.1)), dashes: false, color: { color: colour, highlight: opportunity ? "#da291c" : "#ffffff", hover: "#ffffff", opacity: onSelection ? 1 : 0.18 }, font: relType ? { color: "#cfcfcf", size: 10, face: "Inter Var", strokeWidth: 4, strokeColor: "#181818", align: "middle" } : undefined, smooth: { enabled: true, type: "continuous", roundness: .28 }, hidden: false };
     });
     var data = { nodes: new window.vis.DataSet(nodes), edges: new window.vis.DataSet(edges) };
     var firstBuild = !state.network;
@@ -552,10 +602,10 @@
          * same for people sitting together). Select two, then right-click to
          * merge them into one profile. */
         var srcEvent = event.event && event.event.srcEvent;
-        if (id && String(id) !== D.ME_ID && srcEvent && (srcEvent.ctrlKey || srcEvent.metaKey)) { toggleSelectedId(String(id)); return; }
+        if (id && srcEvent && (srcEvent.ctrlKey || srcEvent.metaKey)) { toggleSelectedId(String(id)); return; }
         if (id) {
           clearEdgeSelection(); clearSelectedIds();
-          if (id === D.ME_ID) { closeDossier(); return; }
+
           if (String(id) === state.selectedId) { openDossier(state.selectedId); return; }
           state.selectedId = String(id);
           state.cycleAnchor = String(id); state.cycleIndex = -1;   /* clicking anchors the ←/→ connection walk */
@@ -617,7 +667,7 @@
         window.__ORBIT_DELETE__ = function (id) { removeContact(String(id)); return trashCount(); };
         window.__ORBIT_TRASH__ = function () { return trashRead().map(function (r) { return { tid: r.tid, label: r.label, links: r.links.length }; }); };
         window.__ORBIT_RESTORE__ = function (tid) { trashRestore(tid); return trashCount(); };
-        window.__ORBIT_PEOPLE__ = function () { return state.snapshot ? state.snapshot.entities.filter(D.isPerson).length : 0; };
+        window.__ORBIT_PEOPLE__ = function () { return state.snapshot ? state.snapshot.entities.filter(function (e) { return D.isPerson(e) && !isMe(e.id); }).length : 0; };
         window.__ORBIT_SELECTED__ = function () { return state.selectedId; };
         window.__ORBIT_MULTI__ = function () { return Object.keys(state.selectedIds); };
         window.__ORBIT_VIEW__ = function () { try { var v = state.network.getViewPosition(); return { scale: Number(state.network.getScale().toFixed(4)), x: Math.round(v.x), y: Math.round(v.y) }; } catch (e) { return null; } };
@@ -696,6 +746,10 @@
     var badge = $("#dossier-kind");
     if (badge) { badge.textContent = isOrg ? "Organisation" : ""; badge.hidden = !isOrg; }
     var dossier = $("#person-dossier"); if (dossier) dossier.setAttribute("data-kind", isOrg ? "organisation" : "individual");
+    /* Your own record has no Delete, and Edit opens Account rather than the
+     * contact form. */
+    var deleteAction = $('[data-action="delete-contact"]'); if (deleteAction) deleteAction.hidden = isMe(id);
+    var editAction = $('[data-action="edit-person"]'); if (editAction) editAction.textContent = isMe(id) ? "Edit my details" : "Edit profile";
     setText("#dossier-role", [profile.header.role, profile.header.organisation, profile.header.location, profile.header.relationship].filter(Boolean).join(" · ") || (isOrg ? "Organisation in your network" : "Person in your network"));
     renderProfile(profile);
     state.mobileView = "profile";
@@ -778,7 +832,6 @@
   function allPeopleIds() {
     if (!state.snapshot) return [];
     return state.snapshot.entities.filter(D.isPerson).map(function (e) { return String(e.id); })
-      .filter(function (id) { return id !== D.ME_ID; })
       .sort(function (a, b) { return personLabel(a).localeCompare(personLabel(b)); });
   }
   /* With a profile open, left/right flip to the previous/next person (wrapping)
@@ -1023,8 +1076,7 @@
     var rect = container.getBoundingClientRect();
     var dom = { x: clientX - rect.left, y: clientY - rect.top };
     var nodeId = state.network.getNodeAt(dom);
-    if (nodeId && nodeId !== D.ME_ID) { nodeCtxMenu(String(nodeId), clientX, clientY); return; }
-    if (nodeId === D.ME_ID) { meCtxMenu(clientX, clientY); return; }
+    if (nodeId) { nodeCtxMenu(String(nodeId), clientX, clientY); return; }
     var edgeId = state.network.getEdgeAt(dom);
     if (edgeId) { edgeCtxMenu(String(edgeId), clientX, clientY); return; }
     var canvasPos = state.network.DOMtoCanvas ? state.network.DOMtoCanvas(dom) : null;
@@ -1065,7 +1117,7 @@
   }
   function setSelectedIds(ids) {
     state.selectedIds = {};
-    ids.forEach(function (id) { if (id !== D.ME_ID) state.selectedIds[id] = true; });
+    ids.forEach(function (id) { state.selectedIds[id] = true; });
     var n = Object.keys(state.selectedIds).length;
     if (n) { state.selectedId = ""; closeDossier(); setText("#sync-status", selectionHint(n)); }
     renderGraph(state.snapshot);
@@ -1083,7 +1135,8 @@
   }
   function clearSelectedIds() { if (Object.keys(state.selectedIds).length) { state.selectedIds = {}; renderGraph(state.snapshot); } }
   function deleteSelectedIds() {
-    var ids = Object.keys(state.selectedIds); if (!ids.length || !state.store) return;
+    var ids = Object.keys(state.selectedIds).filter(function (id) { return !isMe(id); });
+    if (!ids.length || !state.store) { clearSelectedIds(); return; }
     var successor = nextPersonAfter(ids);
     pushUndo();
     var list = trashRead();
@@ -1144,25 +1197,36 @@
   function personById(id) { return state.snapshot && state.snapshot.entities.find(function (e) { return String(e.id) === String(id) && D.isPerson(e); }); }
   function nodeCtxMenu(id, x, y) {
     var person = personById(id); if (!person) return;
+    var mine = isMe(id);
     var pinned = !!state.pinned[String(id)];
     var hasPhoto = !!(person.attrs && person.attrs.photo);
     var items = [
-      { label: "Open profile", fn: function () { state.selectedId = String(id); render(); openDossier(state.selectedId); } },
-      { label: "Edit contact…", fn: function () { openModal(id); } },
+      { label: mine ? "Open my profile" : "Open profile", fn: function () { state.selectedId = String(id); render(); openDossier(state.selectedId); } },
+      { label: mine ? "Edit my details…" : "Edit contact…", fn: function () { if (mine) openAccountModal(); else openModal(id); } },
       { label: "Link from here →", fn: function () { startLinkFrom(id); } },
       { label: hasPhoto ? "Change photo…" : "Set photo…", fn: function () { setPhoto(id); } }
     ];
     if (hasPhoto) items.push({ label: "Remove photo", fn: function () { removePhoto(id); } });
     items.push({ label: "Choose icon…", fn: function () { showIconPicker(id, x, y); } });
-    items.push("-");
-    var currentRing = String(D.attrs(person).ring || "");
-    RING_META.forEach(function (ring) {
-      items.push({ label: (currentRing === ring.key ? "✓ " : "") + "Pin to " + RING_LABELS[ring.key].toLowerCase(), fn: function () { setRing(id, ring.key); } });
-    });
-    if (currentRing) items.push({ label: "Unpin from ring", fn: function () { clearRing(id); } });
-    items.push({ label: pinned ? "Unpin position" : "Pin position", fn: function () { togglePin(id); } });
-    items.push("-");
-    items.push({ label: "Delete contact", danger: true, fn: function () { removeContact(id); } });
+    /* You sit at the centre by definition, so the ring and pin controls — and
+     * deletion — are not yours. The chart controls take their place. */
+    if (mine) {
+      items.push("-");
+      items.push({ label: "Add person here…", fn: function () { addPersonAt(null); } });
+      items.push({ label: "Fit chart to view", fn: function () { if (state.network) state.network.fit({ animation: true }); } });
+      items.push({ label: "Layout: " + layoutMeta(state.layout).label + " ▸", fn: function () { showLayoutPicker(x, y); } });
+      items.push({ label: "Chart background…", fn: function () { showThemePicker(x, y); } });
+    } else {
+      items.push("-");
+      var currentRing = String(D.attrs(person).ring || "");
+      RING_META.forEach(function (ring) {
+        items.push({ label: (currentRing === ring.key ? "✓ " : "") + "Pin to " + RING_LABELS[ring.key].toLowerCase(), fn: function () { setRing(id, ring.key); } });
+      });
+      if (currentRing) items.push({ label: "Unpin from ring", fn: function () { clearRing(id); } });
+      items.push({ label: pinned ? "Unpin position" : "Pin position", fn: function () { togglePin(id); } });
+      items.push("-");
+      items.push({ label: "Delete contact", danger: true, fn: function () { removeContact(id); } });
+    }
     /* With exactly two people selected, offer the merge in both directions so
      * which profile survives is never a guess. */
     var picked = Object.keys(state.selectedIds);
@@ -1175,15 +1239,6 @@
       ].concat(items);
     }
     showCtxMenu(x, y, items);
-  }
-  function meCtxMenu(x, y) {
-    showCtxMenu(x, y, [
-      { label: "Add person here…", fn: function () { addPersonAt(null); } },
-      { label: "Fit chart to view", fn: function () { if (state.network) state.network.fit({ animation: true }); } },
-      "-",
-      { label: "Layout: " + layoutMeta(state.layout).label + " ▸", fn: function () { showLayoutPicker(x, y); } },
-      { label: "Chart background…", fn: function () { showThemePicker(x, y); } }
-    ]);
   }
   function edgeCtxMenu(linkId, x, y) {
     var link = linkById(linkId);
@@ -1401,7 +1456,8 @@
   function mergeContacts(survivorId, absorbedId) {
     if (!state.store || !state.snapshot) return;
     survivorId = String(survivorId); absorbedId = String(absorbedId);
-    if (survivorId === absorbedId || survivorId === D.ME_ID || absorbedId === D.ME_ID) return;
+    if (survivorId === absorbedId) return;
+    if (isMe(absorbedId)) { setText("#sync-status", "YOUR OWN RECORD CANNOT BE MERGED AWAY"); return; }
     var survivor = personById(survivorId), absorbed = personById(absorbedId);
     if (!survivor || !absorbed) return;
     var absorbedName = String(absorbed.label || "this contact");
@@ -1451,6 +1507,7 @@
     render();
     openDossier(survivorId);
     updateTrashButton();
+    if (isMe(survivorId)) syncMeToAccount();
     setText("#sync-status", "MERGED " + absorbedName.toUpperCase() + " INTO " + String(survivor.label || "").toUpperCase() +
       (gained ? " · " + gained + " DETAIL" + (gained === 1 ? "" : "S") + " ADDED" : "") +
       (moved ? " · " + moved + " RECORD" + (moved === 1 ? "" : "S") + " MOVED" : ""));
@@ -1470,6 +1527,7 @@
   function removeContact(id) {
     if (!state.store) return;
     id = String(id);
+    if (isMe(id)) { setText("#sync-status", "YOUR OWN RECORD CANNOT BE DELETED"); return; }
     var record = captureForTrash(id);
     /* Deleting the profile you are reading moves on to the next contact rather
      * than dropping you back to an empty panel. */
@@ -1825,6 +1883,7 @@
       closeModal();
       render();
       openDossier(state.selectedId);
+      if (isMe(existing.id)) syncMeToAccount();
       return;
     }
     var built = contactPart(candidate);
@@ -1879,7 +1938,7 @@
     $$('[data-action="close-record"]').forEach(function (button) { button.addEventListener("click", closeRecord); });
     $('[data-action="add-context"]').addEventListener("click", function () { openRecord("fact"); });
     $('[data-action="log-interaction"]').addEventListener("click", function () { openRecord("interaction"); });
-    $('[data-action="edit-person"]').addEventListener("click", function () { if (state.selectedId) openModal(state.selectedId); });
+    $('[data-action="edit-person"]').addEventListener("click", function () { if (isMe(state.selectedId)) openAccountModal(); else if (state.selectedId) openModal(state.selectedId); });
     $('[data-action="delete-contact"]').addEventListener("click", function () { if (state.selectedId) removeContact(state.selectedId); });
     $('[data-action="mobile-capture"]').addEventListener("click", function () { if (state.selectedId) openRecord("interaction"); else openModal(); });
     $$('[data-mobile-view]').forEach(function (button) { button.addEventListener("click", function () { setMobileView(button.getAttribute("data-mobile-view")); }); });
@@ -1958,6 +2017,7 @@
       state.store = V && V.open ? V.open(window.OrbitCase) : window.OrbitCase;
       if (!state.store) throw new Error("OrbitCase spine unavailable");
       state.store.subscribe(render);
+      ensureMeEntity();
       render();
       finishPendingConnection();
       if (window.OrbitCaseFile && typeof window.OrbitCaseFile.onChange === "function") window.OrbitCaseFile.onChange(function () { setText("#sync-status", "READY"); });

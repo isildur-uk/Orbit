@@ -66,10 +66,13 @@ const c2 = await page.evaluate(() => window.__ORBIT_CYCLE__(1));
 assert("→ advances again (Liam Murphy)", c2 === id("Liam Murphy"), c2);
 const c3 = await page.evaluate(() => window.__ORBIT_CYCLE__(-1));
 assert("← steps back (Grace Field)", c3 === id("Grace Field"), c3);
-// Wrapping: from the first person, ← lands on the last.
+// Wrapping: from the first person, ← lands on the last — which is your own
+// record, since you are a contact like any other and sort under "you".
 await page.evaluate((i) => window.__ORBIT_SELECT__(i), id("Alex Morgan"));
 const wrap = await page.evaluate(() => window.__ORBIT_CYCLE__(-1));
-assert("← from the first person wraps to the last (Tom Baker)", wrap === id("Tom Baker"), wrap);
+assert("← from the first person wraps to the last (you)", wrap === ME, wrap);
+const wrapOn = await page.evaluate(() => window.__ORBIT_CYCLE__(-1));
+assert("← continues past you to the last contact (Tom Baker)", wrapOn === id("Tom Baker"), wrapOn);
 // Works from anyone, including a person with no links (Mia Wong → Priya Patel).
 await page.evaluate((i) => window.__ORBIT_SELECT__(i), id("Mia Wong"));
 const fromLeaf = await page.evaluate(() => window.__ORBIT_CYCLE__(1));

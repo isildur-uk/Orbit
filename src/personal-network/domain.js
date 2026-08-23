@@ -62,7 +62,7 @@
     var introductions = links.filter(function (link) { return lower(link.type).indexOf("intro") !== -1 || lower(link.type).indexOf("opportun") !== -1; }).length;
     return {
       interactions: entities.filter(isInteraction).length,
-      people: entities.filter(isPerson).length,
+      people: entities.filter(function (e) { return isPerson(e) && text(e && e.id) !== ME_ID; }).length,
       relationships: links.length,
       introductions: introductions,
       reconnect: entities.filter(function (e) { return attrs(e).reconnect === true || lower(attrs(e).factType) === "dormant_relationship"; }).length,

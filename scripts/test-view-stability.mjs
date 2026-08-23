@@ -77,6 +77,12 @@ await wait(350);
 const afterCycle = await view();
 assert("←/→ cycling keeps the view", same(afterClick, afterCycle), show(afterClick, afterCycle));
 
+/* Your own record is in the walk and cannot be deleted, so step off it before
+ * testing the delete. */
+while (await page.evaluate(() => window.__ORBIT_SELECTED__()) === ME) {
+  await page.keyboard.press("ArrowRight");
+  await wait(350);
+}
 const cycled = await page.evaluate(() => document.querySelector("#person-dossier h2").textContent.trim());
 await page.keyboard.press("Delete");
 await wait(600);

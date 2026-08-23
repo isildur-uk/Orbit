@@ -111,7 +111,8 @@ console.log("\n[a stray box-select must not turn Delete into a purge]");
 await scenario("arrow collapses a box-select", async ({ page, box }, a) => {
   await a.boxSelectAll(box);
   const selected = await a.state();
-  assert("left-drag box-selected everyone", selected.multi === 6 && !selected.sel, JSON.stringify(selected));
+  /* Six contacts plus your own record, which is a selectable person too. */
+  assert("left-drag box-selected everyone", selected.multi === 7 && !selected.sel, JSON.stringify(selected));
   await page.keyboard.press("ArrowRight");
   await wait(400);
   const collapsed = await a.state();
@@ -132,21 +133,42 @@ await scenario("bulk delete advances", async ({ page, box }, a) => {
   await page.mouse.up();
   await wait(400);
   const selected = await a.state();
-  assert("a partial box-select picks some people", selected.multi > 0 && selected.multi < 6, JSON.stringify(selected));
+  assert("a partial box-select picks some people", selected.multi > 0 && selected.multi < 7, JSON.stringify(selected));
+  /* Your own record is never deleted, so it does not count towards the loss. */
+  const deletable = await page.evaluate(() => window.__ORBIT_MULTI__().filter((i) => i !== "personal-network:me").length);
   await page.keyboard.press("Delete");
   await wait(600);
   const after = await a.state();
-  assert("bulk delete removes the selection", after.people === 6 - selected.multi, "6 - " + selected.multi + " vs " + after.people);
+  assert("bulk delete removes the selection", after.people === 6 - deletable, "6 - " + deletable + " vs " + after.people);
   assert("bulk delete lands on a remaining contact", !after.hidden && !!after.sel, JSON.stringify(after));
 });
 
+console.log("\n[your own record is never deleted]");
+await scenario("delete refuses your own record", async ({ page, box }, a) => {
+  await page.evaluate(() => window.__ORBIT_SELECT__("personal-network:me"));
+  await wait(400);
+  const before = await a.state();
+  assert("your own profile opens", !before.hidden && before.sel === "personal-network:me", JSON.stringify(before));
+  await page.keyboard.press("Delete");
+  await wait(500);
+  const after = await a.state();
+  assert("Delete leaves every contact in place", after.people === 6, "people=" + after.people);
+  assert("and says why", (await page.evaluate(() => document.querySelector("#sync-status").textContent)).includes("CANNOT BE DELETED"));
+});
+
 console.log("\n[the last contact]");
-await scenario("emptying the network closes the panel", async ({ page, box }, a) => {
+await scenario("deleting everyone leaves you", async ({ page, box }, a) => {
   await a.clickPerson(box);
-  for (let i = 0; i < 6; i++) { await page.keyboard.press("Delete"); await wait(400); }
+  /* Delete lands on the next contact each time; your own record refuses, so
+   * press past it. */
+  for (let i = 0; i < 10; i++) {
+    if (await page.evaluate(() => window.__ORBIT_SELECTED__()) === "personal-network:me") await page.keyboard.press("ArrowRight");
+    else await page.keyboard.press("Delete");
+    await wait(350);
+  }
   const after = await a.state();
   assert("every contact deleted", after.people === 0, "people=" + after.people);
-  assert("panel closes when nobody is left", after.hidden && !after.sel, JSON.stringify(after));
+  assert("the panel lands on you rather than going blank", !after.hidden && after.sel === "personal-network:me", JSON.stringify(after));
 });
 
 console.log("\n----------------------------------------");
