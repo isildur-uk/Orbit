@@ -22,7 +22,10 @@
     favourite: L('<path d="M11.5 2.7 14 7.8l5.6.8-4 4 1 5.6-5-2.7-5 2.7 1-5.6-4-4 5.6-.8Z"/>'),
     family: L('<path d="M8 21v-3a3 3 0 0 1 3-3h2a3 3 0 0 1 3 3v3"/><circle cx="12" cy="8.5" r="3"/><path d="M4 21v-2a2.5 2.5 0 0 1 2-2.45"/><path d="M20 21v-2a2.5 2.5 0 0 0-2-2.45"/>'),
     home: L('<path d="M3 9.5 12 3l9 6.5V21H3z"/><path d="M9 21v-6h6v6"/>'),
-    work: L('<rect x="2" y="7" width="20" height="14" rx="2"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>')
+    work: L('<rect x="2" y="7" width="20" height="14" rx="2"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>'),
+    /* An address with no name behind it yet — an import that arrived as an
+     * email and nothing else. Drawing those as people overstates what is known. */
+    mail: L('<rect x="2" y="4.5" width="20" height="15" rx="2"/><path d="m2.6 6 8.3 6.2a2 2 0 0 0 2.2 0L21.4 6"/>')
   };
 
   function chip(key, opts) {
@@ -41,12 +44,13 @@
 
   function defaultKey(entityKind) {
     if (entityKind === "organisation" || entityKind === "generic-inbox") return "organisation";
+    if (entityKind === "unknown" || entityKind === "email") return "mail";
     return "person";
   }
 
   /* Ordered for the picker: the two defaults first, then override markers. */
-  var CATALOGUE = ["person", "people", "organisation", "favourite", "family", "home", "work"];
-  var LABELS = { person: "Person", people: "Group", organisation: "Organisation", favourite: "Favourite", family: "Family", home: "Home", work: "Work" };
+  var CATALOGUE = ["person", "people", "organisation", "mail", "favourite", "family", "home", "work"];
+  var LABELS = { person: "Person", people: "Group", organisation: "Organisation", mail: "Email only", favourite: "Favourite", family: "Family", home: "Home", work: "Work" };
 
   var api = { GLYPHS: GLYPHS, chip: chip, defaultKey: defaultKey, catalogue: CATALOGUE, labels: LABELS, has: function (k) { return Object.prototype.hasOwnProperty.call(GLYPHS, k); } };
   if (typeof module !== "undefined" && module.exports) module.exports = api;

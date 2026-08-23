@@ -171,6 +171,7 @@
           </button>
           <span class="graph-tools-hint">Right-click (or long-press) a person to link, edit or photo · the chart to add someone</span>
         </div>
+        <div id="tag-bar" class="tag-bar" aria-label="Filter by tag" hidden></div>
         <div id="rubber-band" class="rubber-band" aria-hidden="true"></div>
         <svg id="link-ghost" class="link-ghost" aria-hidden="true"><line x1="0" y1="0" x2="0" y2="0"></line><circle cx="0" cy="0" r="4"></circle></svg>
         <div id="connect-hint" class="connect-hint" role="status" hidden>Click another person to connect them · press Esc to cancel</div>
@@ -211,6 +212,7 @@
         <div class="dossier-headings">
           <div class="dossier-name-row"><h2 id="dossier-name">—</h2><span id="dossier-kind" class="kind-badge" hidden>Organisation</span><span id="dossier-ring" class="ring-badge" hidden></span></div>
           <p id="dossier-role" class="dossier-role">Select a person to inspect their relationship context.</p>
+          <div id="dossier-tags" class="dossier-tags" hidden></div>
         </div>
       </div>
       <div class="section-kicker dossier-subkicker">CONTACT</div>
@@ -278,6 +280,7 @@
         <label>Birthday<input name="birthday" type="date" autocomplete="bday"></label>
         <label>Interests<input name="interests" maxlength="500" placeholder="e.g. cycling, food, design"></label>
       </div>
+      <label>Tags<input name="tags" maxlength="300" placeholder="e.g. cycling, work, uni — separate with commas"></label>
       <label>How you know them<input name="relationship" maxlength="160" placeholder="e.g. Former colleague, running club"></label>
       <label>Private note<textarea name="note" maxlength="1000" rows="3" placeholder="What is useful to remember about this person?"></textarea></label>
       <label>Relationship strength <span class="field-value" id="strength-value">50</span><input name="strength" id="strength-input" type="range" min="0" max="100" value="50"></label>
@@ -438,6 +441,7 @@
   <script src="classify.js?v=20260822-classify-pass"></script>
   <script src="matching.js?v=20260822-matching-pass"></script>
   <script src="icons.js?v=20260822-icons-pass"></script>
+  <script src="tags.js?v=20260823-tags"></script>
   <script src="layouts.js?v=20260823-layouts"></script>
   <script src="google-contacts.js?v=20260822-google-contacts-2"></script>
   <script src="domain.js?v=20260822-contact-profile-pass"></script>

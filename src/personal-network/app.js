@@ -6,7 +6,8 @@
   var P = window.OrbitNetworkProfile;
   var A = window.OrbitCloudAuth && window.OrbitCloudAuth.configured ? window.OrbitCloudAuth : window.OrbitLocalAuth;
   var C = window.OrbitConnections;
-  var state = { store: null, ready: null, network: null, snapshot: null, selectedId: "", editingId: "", query: "", opportunityMode: false, profileTab: "summary", mobileView: "network", importDraft: null, workspaceStarted: false, positions: {}, _nodeCount: -1, selectedEdge: null, linkFrom: null, pendingPlace: null, pinned: {}, undoStack: [], redoStack: [], photoLoaded: {}, photoPending: {}, emptyDismissed: false, shiftHeld: false, selectedIds: {}, layout: "orbit", ringAngle: {}, cycleAnchor: "", cycleIndex: -1 };
+  var T = window.OrbitTags;
+  var state = { tagFilter: {}, store: null, ready: null, network: null, snapshot: null, selectedId: "", editingId: "", query: "", opportunityMode: false, profileTab: "summary", mobileView: "network", importDraft: null, workspaceStarted: false, positions: {}, _nodeCount: -1, selectedEdge: null, linkFrom: null, pendingPlace: null, pinned: {}, undoStack: [], redoStack: [], photoLoaded: {}, photoPending: {}, emptyDismissed: false, shiftHeld: false, selectedIds: {}, layout: "orbit", ringAngle: {}, cycleAnchor: "", cycleIndex: -1 };
   var $ = function (selector) { return document.querySelector(selector); };
   var $$ = function (selector) { return Array.prototype.slice.call(document.querySelectorAll(selector)); };
 
@@ -418,6 +419,7 @@
     { key: "force", label: "Force", tip: "Let the shape settle by physics" },
     { key: "hierarchy", label: "Tree", tip: "Top-down tidy tree" },
     { key: "grouped", label: "Grouped", tip: "Cluster by kind — people and organisations" },
+    { key: "tags", label: "By tag", tip: "Cluster people into the tags you gave them" },
     { key: "circle", label: "Circle", tip: "Everyone evenly on one ring" },
     { key: "grid", label: "Grid", tip: "Every node on a lattice" },
     { key: "free", label: "Free", tip: "Move anyone anywhere; positions stick" }
@@ -443,6 +445,46 @@
       try { state.network.moveTo({ position: { x: 0, y: 0 }, scale: scale, animation: true }); } catch (e) { try { state.network.fit({ animation: true }); } catch (e2) {} }
     } else { try { state.network.fit({ animation: true }); } catch (e) {} }
   }
+  /* Tag flair: a row of small colour dots under each tagged person, drawn on
+   * the canvas because vis has no second label line. Capped at five so a heavily
+   * tagged person never grows a stripe wider than their name. */
+  function drawTagFlair(ctx) {
+    if (!ctx || !T || !state.snapshot || !state.network) return;
+    var RADIUS = 3.1, GAP = 8.4, MAX = 5;
+    var hasSelection = !!state.selectedId || Object.keys(state.selectedIds).length > 0;
+    var filtering = activeTags().length > 0;
+    ctx.save();
+    state.snapshot.entities.forEach(function (person) {
+      if (!D.isPerson(person)) return;
+      var tags = tagsOf(person);
+      if (!tags.length) return;
+      var id = String(person.id), box;
+      try { box = state.network.getBoundingBox(id); } catch (e) { return; }
+      if (!box) return;
+      var selected = state.selectedId === id || !!state.selectedIds[id];
+      var focused = selected || (filtering && personMatchesFilter(person));
+      ctx.globalAlpha = (state.query.trim() || hasSelection || filtering) && !focused ? 0.28 : 1;
+      var shown = tags.slice(0, MAX);
+      var cx = (box.left + box.right) / 2, y = box.bottom + 17;
+      var startX = cx - ((shown.length - 1) * GAP) / 2;
+      shown.forEach(function (tag, index) {
+        ctx.beginPath();
+        ctx.arc(startX + index * GAP, y, RADIUS, 0, Math.PI * 2);
+        ctx.fillStyle = T.colour(tag);
+        ctx.fill();
+        ctx.lineWidth = 1;
+        ctx.strokeStyle = "rgba(10,10,10,.85)";
+        ctx.stroke();
+      });
+      if (tags.length > MAX) {
+        ctx.fillStyle = "rgba(220,220,220,.8)";
+        ctx.font = "600 8px 'Inter Var', Arial, sans-serif";
+        ctx.textAlign = "left";
+        ctx.fillText("+" + (tags.length - MAX), startX + shown.length * GAP - 2, y + 3);
+      }
+    });
+    ctx.restore();
+  }
   function drawRings(ctx) {
     if (!ctx || state.layout !== "orbit") return;
     var me = mePosition();
@@ -463,7 +505,7 @@
     var q = state.query.trim().toLowerCase();
     return people.filter(function (person) {
       var a = D.attrs(person);
-      var haystack = [person.label, a.role, a.company, a.location, a.email, a.phone, a.phoneOther, a.whatsapp, a.instagram, a.facebook, a.website, a.address, a.workAddress, a.interests].join(" ").toLowerCase();
+      var haystack = [person.label, a.role, a.company, a.location, a.email, a.phone, a.phoneOther, a.whatsapp, a.instagram, a.facebook, a.website, a.address, a.workAddress, a.interests, (T ? T.parse(a.tags).join(" ") : "")].join(" ").toLowerCase();
       var matchesQuery = !q || haystack.indexOf(q) !== -1;
       var matchesOpportunity = !state.opportunityMode || snapshot.links.some(function (link) {
         return D.hasOpportunity(link) && (String(link.from) === String(person.id) || String(link.to) === String(person.id));
@@ -500,14 +542,23 @@
     /* When something is selected, everything else steps back. With a hundred
      * people on screen a slightly thicker border is not enough to find one. */
     var hasSelection = !!state.selectedId || Object.keys(state.selectedIds).length > 0;
-    function dimmed(isSelected) { return (state.query.trim() || hasSelection) && !isSelected ? 0.28 : 1; }
+    var filtering = activeTags().length > 0;
+    function dimmed(isSelected) { return (state.query.trim() || hasSelection || filtering) && !isSelected ? 0.28 : 1; }
+    /* A tag filter puts its people in the foreground the same way a selection
+     * does — the rest of the network stays visible, just out of the way. */
+    function inFocus(person, isSelected) { return isSelected || (filtering && personMatchesFilter(person)); }
     /* SOLAR-parity computed layouts (peacock, tree, grid, force, …) produce a
      * full positions map for ME + every visible person; orbit/free are handled
      * by the ring/saved-position logic below. */
-    var computedKind = window.OrbitLayouts && window.OrbitLayouts.has(state.layout) ? state.layout : null;
+    /* "By tag" is the grouped arrangement fed a different grouping key. */
+    var byTag = state.layout === "tags";
+    var computedKind = byTag ? "grouped" : (window.OrbitLayouts && window.OrbitLayouts.has(state.layout) ? state.layout : null);
     var layoutPos = null, layoutPhysics = false;
     if (computedKind) {
-      var lnodes = [{ id: D.ME_ID, label: "ME", group: "me" }].concat(people.map(function (p) { return { id: String(p.id), label: String(p.label || ""), group: String(D.attrs(p).entityKind || "individual") }; }));
+      var lnodes = [{ id: D.ME_ID, label: "ME", group: "me" }].concat(people.map(function (p) {
+        var group = byTag ? (tagsOf(p)[0] || "Untagged") : String(D.attrs(p).entityKind || "individual");
+        return { id: String(p.id), label: String(p.label || ""), group: group };
+      }));
       var llinks = snapshot.links.filter(function (l) { var ff = normaliseId(l.from), tt = normaliseId(l.to); return visibleSet[ff] && visibleSet[tt]; }).map(function (l) { return { from: normaliseId(l.from), to: normaliseId(l.to) }; });
       var lr = window.OrbitLayouts.compute(computedKind, lnodes, llinks);
       if (lr) { layoutPos = lr.positions; layoutPhysics = !!lr.physics; }
@@ -541,22 +592,24 @@
         nodeFixed = false;
       }
       var selected = state.selectedId === String(person.id) || !!state.selectedIds[String(person.id)];
+      var focused = inFocus(person, selected);
       var opportunity = D.isOpportunityEntity(person) || snapshot.links.some(function (link) { return D.hasOpportunity(link) && (String(link.from) === String(person.id) || String(link.to) === String(person.id)); });
       var kind = String(D.attrs(person).entityKind || "individual");
       var organisation = kind === "organisation" || kind === "generic-inbox";
+      var emailOnly = kind === "unknown" || kind === "email";
       byId[String(person.id)] = true;
       var inner = summary.score >= 55;
       var ringCol = ringPinned ? RING_COLOURS[ringKey] : null;
-      var baseBg = opportunity ? "#da291c" : (organisation ? "#241f16" : (inner ? "#3a3330" : "#2b2b2b"));
-      var baseBorder = selected ? "#ffffff" : (ringCol || (opportunity ? "#ff6a5e" : (organisation ? "#c9a24b" : (inner ? "#c98b84" : "#8a8a8a"))));
+      var baseBg = opportunity ? "#da291c" : (organisation ? "#241f16" : (emailOnly ? "#1e2226" : (inner ? "#3a3330" : "#2b2b2b")));
+      var baseBorder = selected ? "#ffffff" : (ringCol || (opportunity ? "#ff6a5e" : (organisation ? "#c9a24b" : (emailOnly ? "#6f8592" : (inner ? "#c98b84" : "#8a8a8a")))));
       var photo = photoReady(D.attrs(person).photo) ? D.attrs(person).photo : "";
-      var node = { id: String(person.id), label: String(person.label || "Unnamed person"), x: position.x, y: position.y, fixed: nodeFixed, size: selected ? 24 : (opportunity ? 14 : 9 + Math.round(summary.score / 20)), borderWidth: selected ? 4 : 1.4, color: { background: baseBg, border: baseBorder, highlight: { background: "#da291c", border: "#ffffff" }, hover: { background: baseBg, border: "#ffffff" } }, opacity: dimmed(selected), font: { color: selected ? "#ffffff" : "#e4e4e4", size: selected ? 16 : 12, face: "Inter Var", bold: selected, vadjust: -2, strokeWidth: selected ? 6 : 4, strokeColor: "#181818" }, shadow: selected ? { enabled: true, color: "rgba(255,255,255,.8)", size: 30, x: 0, y: 0 } : { enabled: true, color: "rgba(0,0,0,.5)", size: 7, x: 0, y: 2 }, title: String(summary.role || (organisation ? "Organisation" : "")) };
+      var node = { id: String(person.id), label: String(person.label || "Unnamed person"), x: position.x, y: position.y, fixed: nodeFixed, size: selected ? 24 : (opportunity ? 14 : 9 + Math.round(summary.score / 20)), borderWidth: selected ? 4 : 1.4, color: { background: baseBg, border: baseBorder, highlight: { background: "#da291c", border: "#ffffff" }, hover: { background: baseBg, border: "#ffffff" } }, opacity: dimmed(focused), font: { color: selected ? "#ffffff" : "#e4e4e4", size: selected ? 16 : 12, face: "Inter Var", bold: selected, vadjust: -2, strokeWidth: selected ? 6 : 4, strokeColor: "#181818" }, shadow: selected ? { enabled: true, color: "rgba(255,255,255,.8)", size: 30, x: 0, y: 0 } : { enabled: true, color: "rgba(0,0,0,.5)", size: 7, x: 0, y: 2 }, title: String(summary.role || (organisation ? "Organisation" : (emailOnly ? "Email only — no name recorded" : ""))) };
       if (photo) { node.shape = "circularImage"; node.image = photo; node.size = selected ? 28 : 18; node.borderWidth = selected ? 4 : 2; if (ringCol && !selected) node.color.border = ringCol; }
       else if (window.OrbitIcons) {
         var Icons = window.OrbitIcons;
         var iconKey = String(D.attrs(person).icon || Icons.defaultKey(kind));
-        var chipRing = ringCol || (opportunity ? "#ff6a5e" : (organisation ? "#c9a24b" : (inner ? "#c98b84" : "#8a8a8a")));
-        var chipUrl = Icons.chip(iconKey, { bg: organisation ? "#241f16" : "#242424", ring: chipRing, glyph: organisation ? "#e6c877" : "#e8e8e8" });
+        var chipRing = ringCol || (opportunity ? "#ff6a5e" : (organisation ? "#c9a24b" : (emailOnly ? "#6f8592" : (inner ? "#c98b84" : "#8a8a8a"))));
+        var chipUrl = Icons.chip(iconKey, { bg: organisation ? "#241f16" : (emailOnly ? "#1e2226" : "#242424"), ring: chipRing, glyph: organisation ? "#e6c877" : (emailOnly ? "#b6c6cf" : "#e8e8e8") });
         if (photoReady(chipUrl)) {
           node.shape = "circularImage"; node.image = chipUrl; node.size = selected ? 27 : 16;
           node.color = { border: selected ? "#ffffff" : chipRing, background: "transparent", highlight: { border: "#ffffff" }, hover: { border: "#ffffff" } };
@@ -627,6 +680,7 @@
         openContextMenuAt(clientX, clientY);
       });
       state.network.on("beforeDrawing", function (ctx) { drawRings(ctx); });
+      state.network.on("afterDrawing", function (ctx) { drawTagFlair(ctx); });
       /* When the Force layout settles, freeze it and keep the positions so a
        * later re-render doesn't restart physics from the seed layout. */
       state.network.on("stabilizationIterationsDone", function () {
@@ -670,6 +724,13 @@
         window.__ORBIT_PEOPLE__ = function () { return state.snapshot ? state.snapshot.entities.filter(function (e) { return D.isPerson(e) && !isMe(e.id); }).length : 0; };
         window.__ORBIT_SELECTED__ = function () { return state.selectedId; };
         window.__ORBIT_MULTI__ = function () { return Object.keys(state.selectedIds); };
+        window.__ORBIT_TAGS__ = function (id) { var p = personById(id); return p ? tagsOf(p) : null; };
+        window.__ORBIT_SETTAGS__ = function (id, list) { setTags(id, list); return __ORBIT_TAGS__(id); };
+        window.__ORBIT_TAGCENSUS__ = function () { return tagCensus(); };
+        window.__ORBIT_TAGFILTER__ = function (key) { toggleTagFilter(key); return Object.keys(state.tagFilter); };
+        window.__ORBIT_NODEOPACITY__ = function (id) { try { var o = state.network.body.nodes[String(id)].options.opacity; return o == null ? 1 : o; } catch (e) { return "err"; } };
+        window.__ORBIT_VISIBLE__ = function () { return state.snapshot ? currentNodeIds(state.snapshot).length : 0; };
+        window.__ORBIT_ICON_USED__ = function (id) { var p = personById(id); if (!p || !window.OrbitIcons) return null; var a = D.attrs(p); return String(a.icon || window.OrbitIcons.defaultKey(String(a.entityKind || "individual"))); };
         window.__ORBIT_VIEW__ = function () { try { var v = state.network.getViewPosition(); return { scale: Number(state.network.getScale().toFixed(4)), x: Math.round(v.x), y: Math.round(v.y) }; } catch (e) { return null; } };
         window.__ORBIT_TOGGLE__ = function (id) { toggleSelectedId(id); return Object.keys(state.selectedIds); };
         window.__ORBIT_NEIGHBOURS__ = function (id) { return neighboursOf(String(id)).map(personLabel); };
@@ -721,6 +782,7 @@
     if (!state.store) return;
     state.snapshot = D.snapshot(state.store);
     setStats(state.snapshot);
+    renderTagBar();
     renderGraph(state.snapshot);
     if (state.selectedId) openDossier(state.selectedId);
   }
@@ -751,6 +813,14 @@
     var deleteAction = $('[data-action="delete-contact"]'); if (deleteAction) deleteAction.hidden = isMe(id);
     var editAction = $('[data-action="edit-person"]'); if (editAction) editAction.textContent = isMe(id) ? "Edit my details" : "Edit profile";
     setText("#dossier-role", [profile.header.role, profile.header.organisation, profile.header.location, profile.header.relationship].filter(Boolean).join(" · ") || (isOrg ? "Organisation in your network" : "Person in your network"));
+    var tagBox = $("#dossier-tags");
+    if (tagBox) {
+      var tags = tagsOf(person);
+      tagBox.hidden = !tags.length;
+      tagBox.innerHTML = tags.map(function (tag) {
+        return '<span class="tag-chip static" style="--tag-colour:' + esc(T.colour(tag)) + '"><i class="tag-dot"></i><span>' + esc(tag) + '</span></span>';
+      }).join("");
+    }
     renderProfile(profile);
     state.mobileView = "profile";
     syncMobileNav();
@@ -1194,6 +1264,100 @@
     container.addEventListener("pointercancel", function () { active = false; panning = false; if (band) band.style.display = "none"; });
     container.addEventListener("contextmenu", function (e) { e.preventDefault(); }); /* right-drag shouldn't pop the OS menu */
   }
+  /* ---- Tags ----
+   * A tag is free text the user invents; its colour comes from the text itself
+   * (tags.js), so there is nothing to pick and nothing to keep in step. */
+  function tagsOf(person) { return T ? T.parse(D.attrs(person).tags) : []; }
+  function setTags(id, list) {
+    var person = personById(id); if (!person || !state.store || !T) return;
+    pushUndo();
+    var tags = T.parse(list);
+    /* The store drops empty values, so clearing the last tag has to remove the
+     * attribute outright rather than write an empty array. */
+    if (tags.length) state.store.merge({ entities: [{ id: String(id), type: "person", label: person.label, attrs: { tags: tags } }], links: [] });
+    else { delete person.attrs.tags; state.store.merge({ entities: [], links: [] }); }
+    render();
+    if (isMe(id)) syncMeToAccount();
+    setText("#sync-status", tags.length ? "TAGGED · " + tags.join(", ").toUpperCase() : "TAGS CLEARED");
+  }
+  function toggleTagOn(id, tag) {
+    var person = personById(id); if (!person || !T) return;
+    setTags(id, T.toggle(tagsOf(person), tag));
+  }
+  function tagCensus() {
+    if (!T || !state.snapshot) return [];
+    return T.census(state.snapshot.entities.filter(D.isPerson), function (e) { return D.attrs(e).tags; });
+  }
+  function activeTags() { return Object.keys(state.tagFilter); }
+  function personMatchesFilter(person) {
+    var active = activeTags();
+    if (!active.length) return true;
+    var mine = tagsOf(person).map(function (t) { return t.toLowerCase(); });
+    return active.some(function (k) { return mine.indexOf(k) !== -1; });
+  }
+  function toggleTagFilter(key) {
+    if (state.tagFilter[key]) delete state.tagFilter[key]; else state.tagFilter[key] = true;
+    renderTagBar();
+    render();
+    var active = activeTags();
+    setText("#sync-status", active.length ? "FILTERED BY " + active.join(", ").toUpperCase() : "TAG FILTER CLEARED");
+  }
+  function clearTagFilter() { if (activeTags().length) { state.tagFilter = {}; renderTagBar(); render(); } }
+  function renderTagBar() {
+    var bar = $("#tag-bar"); if (!bar) return;
+    var census = tagCensus();
+    bar.hidden = !census.length;
+    if (!census.length) { bar.innerHTML = ""; return; }
+    var active = activeTags();
+    bar.innerHTML = census.map(function (entry) {
+      var on = !!state.tagFilter[entry.key];
+      return '<button type="button" class="tag-chip' + (on ? " active" : "") + '" data-tag-filter="' + esc(entry.key) + '"' +
+        ' style="--tag-colour:' + esc(entry.colour) + '" aria-pressed="' + (on ? "true" : "false") + '">' +
+        '<i class="tag-dot"></i><span>' + esc(entry.tag) + '</span><b>' + entry.count + '</b></button>';
+    }).join("") + (active.length ? '<button type="button" class="tag-chip clear" data-tag-clear="1">Clear filter</button>' : "");
+  }
+  /* The picker: every tag already in use, plus a line to invent a new one. */
+  function showTagPicker(id, x, y) {
+    closeCtxMenu(); closeIconPicker();
+    var person = personById(id); if (!person || !T) return;
+    var mine = tagsOf(person).map(function (t) { return t.toLowerCase(); });
+    var census = tagCensus();
+    /* Deferred like the icon picker, so the click that opened it doesn't reach
+     * the close-on-outside-click handler. */
+    setTimeout(function () {
+      var pop = document.createElement("div");
+      pop.className = "ctx-menu tag-picker";
+      pop.setAttribute("role", "menu");
+      census.forEach(function (entry) {
+        var row = document.createElement("div");
+        row.className = "ctx-item tag-row" + (mine.indexOf(entry.key) !== -1 ? " on" : "");
+        row.setAttribute("role", "menuitemcheckbox");
+        row.setAttribute("aria-checked", mine.indexOf(entry.key) !== -1 ? "true" : "false");
+        row.tabIndex = 0;
+        row.innerHTML = '<i class="tag-dot" style="--tag-colour:' + esc(entry.colour) + '"></i><span>' + esc(entry.tag) + '</span>';
+        function go() { closeIconPicker(); toggleTagOn(id, entry.tag); }
+        row.addEventListener("click", go);
+        row.addEventListener("keydown", function (e) { if (e.key === "Enter") { e.preventDefault(); go(); } });
+        pop.appendChild(row);
+      });
+      if (census.length) { var sep = document.createElement("div"); sep.className = "ctx-sep"; pop.appendChild(sep); }
+      var add = document.createElement("div");
+      add.className = "ctx-item"; add.textContent = "New tag…"; add.setAttribute("role", "menuitem"); add.tabIndex = 0;
+      function invent() {
+        closeIconPicker();
+        var value = window.prompt("Tag this person (separate several with commas)", T.format(tagsOf(person)));
+        if (value != null) setTags(id, value);
+      }
+      add.addEventListener("click", invent);
+      add.addEventListener("keydown", function (e) { if (e.key === "Enter") { e.preventDefault(); invent(); } });
+      pop.appendChild(add);
+      document.body.appendChild(pop); iconPickerEl = pop;
+      var mw = pop.offsetWidth, mh = pop.offsetHeight;
+      pop.style.left = Math.min(x, window.innerWidth - mw - 8) + "px";
+      pop.style.top = Math.min(y, window.innerHeight - mh - 8) + "px";
+      var first = pop.querySelector(".ctx-item"); if (first) first.focus();
+    }, 0);
+  }
   function personById(id) { return state.snapshot && state.snapshot.entities.find(function (e) { return String(e.id) === String(id) && D.isPerson(e); }); }
   function nodeCtxMenu(id, x, y) {
     var person = personById(id); if (!person) return;
@@ -1208,6 +1372,7 @@
     ];
     if (hasPhoto) items.push({ label: "Remove photo", fn: function () { removePhoto(id); } });
     items.push({ label: "Choose icon…", fn: function () { showIconPicker(id, x, y); } });
+    items.push({ label: "Tags…", fn: function () { showTagPicker(id, x, y); } });
     /* You sit at the centre by definition, so the ring and pin controls — and
      * deletion — are not yours. The chart controls take their place. */
     if (mine) {
@@ -1585,6 +1750,7 @@
     setText("#person-submit-label", person ? "Save changes" : "Add to network");
     if (person) {
       ["name", "preferredName", "role", "organisation", "location", "email", "phone", "phoneOther", "whatsapp", "signal", "instagram", "facebook", "website", "x", "address", "workAddress", "birthday", "interests", "relationship", "note"].forEach(function (key) { setFormValue(form, key, key === "name" ? person.label : a[key]); });
+      setFormValue(form, "tags", T ? T.format(a.tags) : "");
       setFormValue(form, "socialProfiles", socialProfilesText(a.socialProfiles));
       setFormValue(form, "strength", a.strength == null ? 50 : a.strength);
     } else {
@@ -1749,7 +1915,7 @@
     }).filter(Boolean);
   }
   function contactAttrs(candidate, sourceType, sourceRef, stamp) {
-    var attrs = { preferredName: String(candidate.preferredName || "").trim(), entityKind: String(candidate.category || "person").trim(), role: String(candidate.role || "").trim(), organisation: String(candidate.organisation || "").trim(), location: String(candidate.location || "").trim(), email: String(candidate.email || "").trim(), phone: String(candidate.phone || "").trim(), phoneOther: String(candidate.phoneOther || "").trim(), whatsapp: String(candidate.whatsapp || "").trim(), signal: String(candidate.signal || "").trim(), instagram: String(candidate.instagram || "").trim(), facebook: String(candidate.facebook || "").trim(), website: String(candidate.website || "").trim(), x: String(candidate.x || "").trim(), address: String(candidate.address || "").trim(), workAddress: String(candidate.workAddress || "").trim(), birthday: String(candidate.birthday || "").trim(), interests: String(candidate.interests || "").trim(), relationship: String(candidate.relationship || "").trim(), note: String(candidate.note || "").trim(), socialProfiles: parseSocialProfiles(candidate.socialProfiles), sourceType: sourceType === "manual" ? "user-entered" : sourceType, sourceRef: sourceRef, provenance: sourceType === "manual" ? "user-entered" : "imported", observedAt: stamp };
+    var attrs = { preferredName: String(candidate.preferredName || "").trim(), entityKind: String(candidate.category || "person").trim(), role: String(candidate.role || "").trim(), organisation: String(candidate.organisation || "").trim(), location: String(candidate.location || "").trim(), email: String(candidate.email || "").trim(), phone: String(candidate.phone || "").trim(), phoneOther: String(candidate.phoneOther || "").trim(), whatsapp: String(candidate.whatsapp || "").trim(), signal: String(candidate.signal || "").trim(), instagram: String(candidate.instagram || "").trim(), facebook: String(candidate.facebook || "").trim(), website: String(candidate.website || "").trim(), x: String(candidate.x || "").trim(), address: String(candidate.address || "").trim(), workAddress: String(candidate.workAddress || "").trim(), birthday: String(candidate.birthday || "").trim(), interests: String(candidate.interests || "").trim(), relationship: String(candidate.relationship || "").trim(), note: String(candidate.note || "").trim(), tags: T ? T.parse(candidate.tags) : [], socialProfiles: parseSocialProfiles(candidate.socialProfiles), sourceType: sourceType === "manual" ? "user-entered" : sourceType, sourceRef: sourceRef, provenance: sourceType === "manual" ? "user-entered" : "imported", observedAt: stamp };
     if (candidate.strength != null && candidate.strength !== "") attrs.strength = Number(candidate.strength);
     Object.keys(attrs).forEach(function (key) { if (attrs[key] === "" || (Array.isArray(attrs[key]) && !attrs[key].length)) delete attrs[key]; });
     return attrs;
@@ -1871,11 +2037,11 @@
     var data = new FormData(form), name = String(data.get("name") || "").trim();
     if (!name) return;
     pushUndo();
-    var candidate = { name: name, preferredName: data.get("preferredName"), role: data.get("role"), organisation: data.get("organisation"), location: data.get("location"), email: data.get("email"), phone: data.get("phone"), phoneOther: data.get("phoneOther"), whatsapp: data.get("whatsapp"), signal: data.get("signal"), instagram: data.get("instagram"), facebook: data.get("facebook"), website: data.get("website"), x: data.get("x"), socialProfiles: data.get("socialProfiles"), address: data.get("address"), workAddress: data.get("workAddress"), birthday: data.get("birthday"), interests: data.get("interests"), relationship: data.get("relationship"), note: data.get("note"), strength: data.get("strength"), sourceType: "manual" };
+    var candidate = { name: name, preferredName: data.get("preferredName"), role: data.get("role"), organisation: data.get("organisation"), location: data.get("location"), email: data.get("email"), phone: data.get("phone"), phoneOther: data.get("phoneOther"), whatsapp: data.get("whatsapp"), signal: data.get("signal"), instagram: data.get("instagram"), facebook: data.get("facebook"), website: data.get("website"), x: data.get("x"), socialProfiles: data.get("socialProfiles"), address: data.get("address"), workAddress: data.get("workAddress"), birthday: data.get("birthday"), interests: data.get("interests"), relationship: data.get("relationship"), note: data.get("note"), tags: data.get("tags"), strength: data.get("strength"), sourceType: "manual" };
     if (state.editingId) {
       var existing = state.snapshot && state.snapshot.entities.filter(function (entity) { return String(entity.id) === String(state.editingId) && D.isPerson(entity); })[0];
       if (!existing) return;
-      var stamp = new Date().toISOString(), updated = contactAttrs(candidate, "manual", String(D.attrs(existing).sourceRef || "manual:" + stamp), stamp), managed = ["preferredName", "role", "organisation", "location", "email", "phone", "phoneOther", "whatsapp", "signal", "instagram", "facebook", "website", "x", "socialProfiles", "address", "workAddress", "birthday", "interests", "relationship", "note", "strength"];
+      var stamp = new Date().toISOString(), updated = contactAttrs(candidate, "manual", String(D.attrs(existing).sourceRef || "manual:" + stamp), stamp), managed = ["preferredName", "role", "organisation", "location", "email", "phone", "phoneOther", "whatsapp", "signal", "instagram", "facebook", "website", "x", "socialProfiles", "address", "workAddress", "birthday", "interests", "relationship", "note", "tags", "strength"];
       managed.forEach(function (key) { if (Object.prototype.hasOwnProperty.call(updated, key)) existing.attrs[key] = updated[key]; else delete existing.attrs[key]; });
       existing.label = name;
       state.store.merge({ entities: [existing], links: [] });
@@ -1972,6 +2138,13 @@
     $$('[data-action="close-edge"]').forEach(function (button) { button.addEventListener("click", clearEdgeSelection); });
     $('[data-action="opportunities"]').addEventListener("click", function (event) { state.opportunityMode = !state.opportunityMode; event.currentTarget.setAttribute("aria-pressed", String(state.opportunityMode)); setText("#network-mode", state.opportunityMode ? "OPPORTUNITY VIEW" : "ORBIT VIEW"); render(); });
     $("#network-search").addEventListener("input", function (event) { state.query = event.target.value; render(); });
+    var tagBar = $("#tag-bar");
+    if (tagBar) tagBar.addEventListener("click", function (event) {
+      var chip = event.target.closest("[data-tag-filter],[data-tag-clear]");
+      if (!chip) return;
+      if (chip.hasAttribute("data-tag-clear")) { state.tagFilter = {}; renderTagBar(); render(); setText("#sync-status", "TAG FILTER CLEARED"); return; }
+      toggleTagFilter(chip.getAttribute("data-tag-filter"));
+    });
     $("#person-form").addEventListener("submit", function (event) { event.preventDefault(); addPerson(event.currentTarget); });
     $("#record-form").addEventListener("submit", function (event) { event.preventDefault(); addRecord(event.currentTarget); });
     $("#strength-input").addEventListener("input", function (event) { setText("#strength-value", event.target.value); });
@@ -2002,6 +2175,7 @@
       if (iconPickerEl) { closeIconPicker(); return; }
       if (ctxMenuEl) { closeCtxMenu(); return; }
       if (Object.keys(state.selectedIds).length) { clearSelectedIds(); return; }
+      if (activeTags().length) { clearTagFilter(); setText("#sync-status", "TAG FILTER CLEARED"); return; }
       if (state.linkFrom) { endLinkFrom(); return; }
       if (state.selectedEdge) { clearEdgeSelection(); return; }
       var empty = $("#network-empty");

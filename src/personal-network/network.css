@@ -602,3 +602,22 @@ html[data-oauth-popup] body::after{content:"Completing sign-in…";color:var(--n
 
 /* Positioning context for the full-height sidebar resize handle */
 .network-app{position:relative}
+
+/* ---- Tags: a chip in the bar and on the profile, a dot everywhere ---- */
+.tag-dot{width:8px;height:8px;border-radius:50%;background:var(--tag-colour,#8a8a8a);flex:0 0 auto}
+.tag-bar{position:absolute;z-index:5;left:28px;right:28px;top:60px;display:flex;flex-wrap:wrap;gap:6px;align-items:center;pointer-events:auto}
+.tag-bar[hidden]{display:none}
+.tag-chip{display:inline-flex;gap:6px;align-items:center;padding:4px 9px;border:1px solid var(--network-line);border-radius:var(--network-radius);background:rgba(20,20,20,.86);color:var(--network-muted);font-family:var(--network-mono);font-size:10px;letter-spacing:.04em;line-height:1.6;cursor:pointer}
+.tag-chip:hover{border-color:var(--tag-colour,var(--network-accent));color:var(--network-text)}
+.tag-chip.active{border-color:var(--tag-colour,var(--network-accent));background:rgba(255,255,255,.07);color:var(--network-text)}
+.tag-chip b{font-weight:500;color:var(--network-faint);font-variant-numeric:tabular-nums}
+.tag-chip.active b{color:var(--network-text)}
+.tag-chip.clear{color:var(--network-accent);border-style:dashed}
+.tag-chip.static{cursor:default;background:transparent}
+.tag-chip:focus-visible{outline:2px solid var(--network-accent);outline-offset:1px}
+.dossier-tags{display:flex;flex-wrap:wrap;gap:5px;margin-top:9px}
+.dossier-tags[hidden]{display:none}
+.tag-picker .tag-row{display:flex;gap:8px;align-items:center}
+.tag-picker .tag-row.on{color:var(--network-text)}
+.tag-picker .tag-row.on::after{content:"✓";margin-left:auto;color:var(--network-accent)}
+@media (max-width:720px){.tag-bar{left:14px;right:14px;top:54px;gap:5px}.tag-chip{font-size:11px;padding:5px 10px}}

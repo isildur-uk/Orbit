@@ -59,6 +59,7 @@
       interests: text(raw.interests),
       socialProfiles: raw.socialProfiles || "",
       note: text(raw.note || raw.notes),
+      tags: text(raw.tags || raw.labels),
       sourceType: sourceType,
       sourceRef: sourceRef
     };
@@ -159,6 +160,12 @@
         else if (/^interests?$/.test(header)) aliases.interests = value;
         else if (/^(social|socialprofiles|profiles)$/.test(header)) aliases.socialProfiles = value;
         else if (/^(note|notes|memo|description)$/.test(header)) aliases.note = value;
+        /* Google exports its contact groups as "Labels", separated by ":::",
+         * with a "* myContacts" marker that is bookkeeping rather than a tag. */
+        else if (/^(labels?|tags?|groups?|categor(y|ies))$/.test(header)) {
+          aliases.tags = value.split(/:::|[;,]/).map(function (t) { return text(t); })
+            .filter(function (t) { return t && t.charAt(0) !== "*"; }).join(", ");
+        }
       });
       if (!aliases.name && (firstName || lastName)) aliases.name = [firstName, lastName].filter(Boolean).join(" ");
       out.push(candidate(aliases, "csv-import", fileName + ":" + (base + index)));
