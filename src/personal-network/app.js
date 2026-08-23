@@ -7,7 +7,7 @@
   var A = window.OrbitCloudAuth && window.OrbitCloudAuth.configured ? window.OrbitCloudAuth : window.OrbitLocalAuth;
   var C = window.OrbitConnections;
   var T = window.OrbitTags;
-  var state = { tagFilter: {}, kindFilter: {}, coldMode: false, path: null, store: null, ready: null, network: null, snapshot: null, selectedId: "", editingId: "", query: "", opportunityMode: false, profileTab: "summary", mobileView: "network", importDraft: null, workspaceStarted: false, positions: {}, _nodeCount: -1, selectedEdge: null, linkFrom: null, pendingPlace: null, pinned: {}, undoStack: [], redoStack: [], photoLoaded: {}, photoPending: {}, emptyDismissed: false, shiftHeld: false, selectedIds: {}, layout: "orbit", ringAngle: {}, cycleAnchor: "", cycleIndex: -1 };
+  var state = { tagFilter: {}, kindFilter: {}, expanded: {}, coldMode: false, path: null, store: null, ready: null, network: null, snapshot: null, selectedId: "", editingId: "", query: "", opportunityMode: false, profileTab: "summary", mobileView: "network", importDraft: null, workspaceStarted: false, positions: {}, _nodeCount: -1, selectedEdge: null, linkFrom: null, pendingPlace: null, pinned: {}, undoStack: [], redoStack: [], photoLoaded: {}, photoPending: {}, emptyDismissed: false, shiftHeld: false, selectedIds: {}, layout: "orbit", ringAngle: {}, cycleAnchor: "", cycleIndex: -1 };
   var $ = function (selector) { return document.querySelector(selector); };
   var $$ = function (selector) { return Array.prototype.slice.call(document.querySelectorAll(selector)); };
 
@@ -305,14 +305,23 @@
   function renderProfile(profile) {
     var context = profile.currentContext || [];
     $("#dossier-contact").innerHTML = (profile.header.contactMethods || []).slice(0, 12).map(contactChip).join("") || '<span class="contact-chip">No contact methods recorded</span>';
-    $("#dossier-facts").innerHTML = [
+    var a = D.attrs(profile.person), mailTotal = Number(a.emailTotal || 0);
+    var facts = [
       ["Health score", Math.round(profile.relationship.score) + "/100"],
       ["Relationship", profile.relationship.phase.label],
       ["Recency", profile.relationship.health ? profile.relationship.health.recencyLabel : "Not recorded"],
-      ["Frequency", profile.relationship.health ? profile.relationship.health.frequencyLabel : formatCount(profile.relationship.interactionCount)],
-      ["Shared contacts", formatCount(profile.relationship.sharedContacts)],
-      ["Open promises", formatCount(profile.promises.length)]
-    ].map(function (row) { return '<div class="dossier-fact"><span class="dossier-fact-label">' + esc(row[0]) + '</span><span class="dossier-fact-value">' + esc(row[1]) + '</span></div>'; }).join("");
+      ["Frequency", profile.relationship.health ? profile.relationship.health.frequencyLabel : formatCount(profile.relationship.interactionCount)]
+    ];
+    /* Counted from the mailbox rather than from what is stored, so the number is
+     * the real one even though only the recent messages are kept. */
+    if (mailTotal) {
+      facts.push(["Emails", formatCount(mailTotal) + " · " + formatCount(Number(a.emailSent || 0)) + " out, " + formatCount(Number(a.emailReceived || 0)) + " in"]);
+      facts.push(["Last email", a.emailLastAt ? formatDate(a.emailLastAt) : "Not recorded"]);
+    } else {
+      facts.push(["Shared contacts", formatCount(profile.relationship.sharedContacts)]);
+      facts.push(["Open promises", formatCount(profile.promises.length)]);
+    }
+    $("#dossier-facts").innerHTML = facts.map(function (row) { return '<div class="dossier-fact"><span class="dossier-fact-label">' + esc(row[0]) + '</span><span class="dossier-fact-value">' + esc(row[1]) + '</span></div>'; }).join("");
     var moment = nextMoment(profile);
     setText("#dossier-next-move", moment.title);
     setText("#dossier-next-move-detail", moment.detail);
@@ -327,7 +336,12 @@
     }).join("");
     $("#dossier-context-empty").hidden = context.length > 0;
     $("#dossier-timeline").innerHTML = (profile.history || []).slice(0, 80).map(function (item) {
-      return '<div class="timeline-item"><div class="timeline-date">' + esc(formatDate(item.date)) + '</div><div class="timeline-title">' + esc(item.title || "Untitled record") + '</div>' + (item.summary ? '<div class="timeline-summary">' + esc(item.summary) + '</div>' : '') + '<div class="timeline-kind">' + esc(item.kind) + (item.sourceType && item.sourceType !== "unknown" ? " · " + esc(item.sourceType) : "") + '</div></div>';
+      /* Anything that came from somewhere you can go back to becomes a link. */
+      var safeLink = /^https:\/\//i.test(String(item.link || "")) ? String(item.link) : "";
+      var title = safeLink
+        ? '<a class="timeline-link" href="' + esc(safeLink) + '" target="_blank" rel="noreferrer">' + esc(item.title || "Untitled record") + '</a>'
+        : esc(item.title || "Untitled record");
+      return '<div class="timeline-item"><div class="timeline-date">' + esc(formatDate(item.date)) + '</div><div class="timeline-title">' + title + '</div>' + (item.summary ? '<div class="timeline-summary">' + esc(item.summary) + '</div>' : '') + '<div class="timeline-kind">' + esc(item.kind) + (item.sourceType && item.sourceType !== "unknown" ? " · " + esc(item.sourceType) : "") + '</div></div>';
     }).join("");
     $("#dossier-timeline-empty").hidden = (profile.history || []).length > 0;
     $("#dossier-evidence-list").innerHTML = (profile.evidence || []).map(function (item) {
@@ -626,7 +640,7 @@
     var byId = Object.create(null);
     /* Degrees and opportunity membership in one pass each, rather than a scan of
      * every link for every person. */
-    var degrees = D.degreeMap(snapshot.links), flair = [];
+    var degrees = D.degreeMap(snapshot.links), flair = [], nodePositions = Object.create(null);
     var followState = Object.create(null);
     snapshot.links.forEach(function (link) {
       if (!isFollowLink(link)) return;
@@ -667,6 +681,7 @@
       var emailOnly = kind === "unknown" || kind === "email";
       var socialOnly = kind === "social";
       byId[String(person.id)] = true;
+      nodePositions[String(person.id)] = position;
       if (T) {
         var personTags = tagsOf(person);
         if (personTags.length) {
@@ -722,6 +737,35 @@
       else if (pointsTo === from) arrows = { from: { enabled: true, scaleFactor: 0.6 } };
       return { id: String(link.id), from: from, to: to, label: showLabel ? (relType || undefined) : undefined, arrows: arrows, width: onPath ? 3 : (onSelection && hasSelection ? 2.2 : (opportunity ? 2.6 : (touchesMe ? 1.3 : 1.1))), dashes: false, color: { color: onPath ? "rgba(255,255,255,.92)" : colour, highlight: opportunity ? "#da291c" : "#ffffff", hover: "#ffffff", opacity: onSelection ? 1 : 0.18 }, font: relType ? { color: "#cfcfcf", size: 10, face: "Inter Var", strokeWidth: 4, strokeColor: "#181818", align: "middle" } : undefined, smooth: dense ? false : { enabled: true, type: "continuous", roundness: .28 }, hidden: false };
     });
+    /* Each expanded person fans their parts out around them. */
+    Object.keys(state.expanded).forEach(function (personId) {
+      if (!byId[personId] && personId !== D.ME_ID) { delete state.expanded[personId]; return; }
+      var person = personById(personId); if (!person) return;
+      var parts = detailsOf(person);
+      if (!parts.length) return;
+      var home = personId === D.ME_ID ? mePos : (nodePositions[personId] || mePos);
+      var spread = 105 + 11 * parts.length;
+      parts.forEach(function (part, index) {
+        var angle = ((index + 0.5) / parts.length) * Math.PI * 2 - Math.PI / 2;
+        var nodeId = detailId(personId, index);
+        nodes.push({
+          id: nodeId, label: part.value.length > 26 ? part.value.slice(0, 25) + "…" : part.value,
+          x: Math.round(home.x + Math.cos(angle) * spread), y: Math.round(home.y + Math.sin(angle) * spread),
+          fixed: true, shape: "box", widthConstraint: { maximum: 150 },
+          margin: { top: 4, right: 7, bottom: 4, left: 7 },
+          borderWidth: 1, opacity: 1,
+          color: { background: "#191919", border: DETAIL_COLOUR[part.kind] || "#8a8a8a", highlight: { background: "#222", border: "#ffffff" }, hover: { background: "#222", border: "#ffffff" } },
+          font: { color: "#d8d8d8", size: 10, face: "Inter Var", multi: false },
+          shadow: { enabled: false },
+          title: esc(part.label + ": " + part.value + (part.href ? "\nClick to open" : ""))
+        });
+        edges.push({
+          id: nodeId + DETAIL_MARK + "edge", from: personId, to: nodeId, label: undefined,
+          width: 1, dashes: [2, 3], arrows: undefined, smooth: false,
+          color: { color: "rgba(255,255,255,.22)", highlight: "#ffffff", hover: "#ffffff", opacity: 1 }
+        });
+      });
+    });
     var firstBuild = !state.network;
     if (firstBuild) {
       state.nodesDS = new window.vis.DataSet(nodes);
@@ -745,6 +789,16 @@
             return;
           }
           endLinkFrom();
+          return;
+        }
+        /* A part of a person is a shortcut, not a node to select: clicking it
+         * opens the address, the number or the profile it stands for. */
+        if (id && isDetailNode(id)) {
+          var owner = personById(detailOwner(id));
+          var parts = owner ? detailsOf(owner) : [];
+          var part = parts[Number(String(id).split(DETAIL_MARK)[2])];
+          if (part && part.href) { try { window.open(part.href, /^https?:/i.test(part.href) ? "_blank" : "_self", "noreferrer"); } catch (e) {} }
+          else if (part) setText("#sync-status", part.label.toUpperCase() + " · " + part.value.toUpperCase());
           return;
         }
         /* Fast path: shift-click a person to start a link, then click the target. */
@@ -851,6 +905,25 @@
           return (result.candidates || []).filter(function (c) { return !!c.avatarUrl; }).length;
         };
         window.__ORBIT_PHOTO__ = function (id) { var p = personById(id); return p ? String(D.attrs(p).photo || "") : null; };
+        window.__ORBIT_MAILBOX__ = function (text, name) {
+          var Mbox = window.OrbitMbox;
+          var summary = Mbox.createSummary({ mine: myAddresses(), since: Date.now() - MBOX_MONTHS * 30.44 * 86400000, keepRecent: MBOX_KEEP_RECENT });
+          var reader = Mbox.createReader(function (h) { summary.add(h); });
+          String(text).split("\n").forEach(function (line) { reader.line(line); });
+          reader.end();
+          var result = summary.result();
+          openImportReview([{ name: name || "mail.mbox", candidates: mailboxCandidates(result), skippedCount: 0 }], mailboxNote(result));
+          return { people: result.people.length, kept: result.counts.kept, old: result.counts.skippedOld };
+        };
+        window.__ORBIT_MAILSTATS__ = function (id) {
+          var p = personById(id); if (!p) return null;
+          var a = D.attrs(p);
+          return { total: Number(a.emailTotal || 0), sent: Number(a.emailSent || 0), received: Number(a.emailReceived || 0), last: String(a.emailLastAt || "") };
+        };
+        window.__ORBIT_TIMELINE__ = function (id) {
+          var P = window.OrbitNetworkProfile, built = P ? P.buildProfile(state.snapshot, String(id)) : null;
+          return built ? built.history.map(function (h) { return { title: h.title, link: h.link || "", kind: h.kind }; }) : null;
+        };
         window.__ORBIT_EMPTYPOINT__ = function () {
           var el = document.querySelector("#network"), r = el.getBoundingClientRect();
           for (var y = 70; y < r.height - 70; y += 24) {
@@ -881,6 +954,19 @@
         };
         window.__ORBIT_HANDLE__ = function (id) { var p = personById(id); return p ? String(D.attrs(p).instagram || "") : null; };
         window.__ORBIT_BYHANDLE__ = function (handle) { var p = personByHandle(igHandle(handle)); return p ? String(p.id) : null; };
+        window.__ORBIT_EXPAND__ = function (id) { toggleExpanded(id); return Object.keys(state.expanded); };
+        window.__ORBIT_DETAILNODES__ = function (id) {
+          return state.nodesDS.getIds().filter(function (nodeId) { return isDetailNode(nodeId) && detailOwner(nodeId) === String(id); })
+            .map(function (nodeId) { return String(state.nodesDS.get(nodeId).label); });
+        };
+        window.__ORBIT_DETAILS__ = function (id) { var p = personById(id); return p ? detailsOf(p).map(function (d) { return d.label + "|" + d.value + "|" + d.href; }) : null; };
+        window.__ORBIT_BYEMAIL__ = function (address) {
+          var want = String(address || "").toLowerCase();
+          var hit = (state.snapshot ? state.snapshot.entities : []).filter(function (e) {
+            return D.isPerson(e) && String(D.attrs(e).email || "").toLowerCase().split(/[,;s]+/).indexOf(want) !== -1;
+          })[0];
+          return hit ? String(hit.id) : null;
+        };
         window.__ORBIT_RENAME__ = function (id, name) { renameContact(id, name); var p = personById(id); return p ? String(p.label) : null; };
         window.__ORBIT_LABEL__ = function (id) { var p = personById(id); return p ? String(p.label) : null; };
         window.__ORBIT_NETWORK__ = function () { return state.network; };
@@ -971,7 +1057,11 @@
     var editAction = $('[data-action="edit-person"]'); if (editAction) editAction.textContent = isMe(id) ? "Edit my details" : "Edit profile";
     var kindWord = isOrg ? "Organisation" : (profile.header.kind === "social" ? "Social handle" : (profile.header.kind === "email" || profile.header.kind === "unknown" ? "Email address only" : ""));
     var vanity = profile.header.preferredName && profile.header.preferredName.toLowerCase() !== profile.header.name.toLowerCase() ? profile.header.preferredName : "";
-    setText("#dossier-role", [vanity, profile.header.role, profile.header.organisation, profile.header.location, profile.header.relationship, kindWord].filter(Boolean).join(" · ") || "No details recorded yet");
+    var described = [vanity, profile.header.role, profile.header.organisation, profile.header.location, profile.header.relationship, kindWord].filter(Boolean).join(" · ");
+    var partCount = detailsOf(profile.person).length;
+    setText("#dossier-role", described || (partCount
+      ? partCount + (partCount === 1 ? " detail recorded" : " details recorded") + " · right-click to expand"
+      : "No details recorded yet"));
     var tagBox = $("#dossier-tags");
     if (tagBox) {
       var tags = tagsOf(person);
@@ -1354,6 +1444,7 @@
     var rect = container.getBoundingClientRect();
     var dom = { x: clientX - rect.left, y: clientY - rect.top };
     var nodeId = state.network.getNodeAt(dom);
+    if (nodeId && isDetailNode(nodeId)) { nodeCtxMenu(detailOwner(nodeId), clientX, clientY); return; }
     if (nodeId) { nodeCtxMenu(String(nodeId), clientX, clientY); return; }
     var edgeId = state.network.getEdgeAt(dom);
     if (edgeId) { edgeCtxMenu(String(edgeId), clientX, clientY); return; }
@@ -1618,6 +1709,49 @@
       var first = pop.querySelector(".ctx-item"); if (first) first.focus();
     }, 0);
   }
+  /* ---- Expanding a person ----
+   * Merging an account into someone is the right call — one person, one record —
+   * but it buries what they are made of in a list of attributes. Expanding puts
+   * those parts back on the chart as their own nodes hanging off the person:
+   * their handles, their addresses, their numbers.
+   *
+   * These nodes are drawn, not stored. Nothing is added to the vault, so
+   * expanding costs nothing and collapsing leaves no trace. */
+  var DETAIL_MARK = "\u0000detail\u0000";
+  function detailId(personId, index) { return DETAIL_MARK + personId + DETAIL_MARK + index; }
+  function isDetailNode(id) { return String(id).indexOf(DETAIL_MARK) === 0; }
+  function detailOwner(id) { return String(id).split(DETAIL_MARK)[1] || ""; }
+  var DETAIL_COLOUR = {
+    email: "#6f8592", phone: "#7f9a7a", phoneOther: "#7f9a7a", whatsapp: "#7f9a7a", signal: "#7f9a7a",
+    instagram: "#8f7fa6", facebook: "#8f7fa6", x: "#8f7fa6", tiktok: "#8f7fa6", social: "#8f7fa6",
+    website: "#c9a24b", address: "#a08b6f", workAddress: "#a08b6f"
+  };
+  /* What a person is made of, in the order it reads best. */
+  function detailsOf(person) {
+    if (!P || !P.contactMethods) return [];
+    var out = P.contactMethods(person).map(function (method) {
+      return { kind: method.kind, label: contactKindLabel(method.kind), value: method.value, href: contactHref(method) };
+    });
+    (P.addresses ? P.addresses(person) : []).forEach(function (row) {
+      out.push({ kind: "address", label: row.label, value: row.value, href: "" });
+    });
+    return out;
+  }
+  function toggleExpanded(id) {
+    id = String(id);
+    if (state.expanded[id]) delete state.expanded[id]; else state.expanded[id] = true;
+    render();
+    var person = personById(id);
+    setText("#sync-status", state.expanded[id]
+      ? "EXPANDED · " + (person ? String(person.label).toUpperCase() : "") + " · " + detailsOf(person).length + " DETAILS"
+      : "COLLAPSED");
+  }
+  function collapseAll() {
+    if (!Object.keys(state.expanded).length) return false;
+    state.expanded = {};
+    render();
+    return true;
+  }
   function personById(id) { return state.snapshot && state.snapshot.entities.find(function (e) { return String(e.id) === String(id) && D.isPerson(e); }); }
   function nodeCtxMenu(id, x, y) {
     var person = personById(id); if (!person) return;
@@ -1633,6 +1767,11 @@
     if (hasPhoto) items.push({ label: "Remove photo", fn: function () { removePhoto(id); } });
     items.push({ label: "Choose icon…", fn: function () { showIconPicker(id, x, y); } });
     items.push({ label: "Tags…", fn: function () { showTagPicker(id, x, y); } });
+    var partCount = detailsOf(person).length;
+    if (partCount) items.push({
+      label: (state.expanded[String(id)] ? "Collapse details" : "Expand details") + " (" + partCount + ")",
+      fn: function () { toggleExpanded(id); }
+    });
     if (!mine) items.push({ label: "How do I know them?", fn: function () { showPathTo(id); } });
     /* You sit at the centre by definition, so the ring and pin controls — and
      * deletion — are not yours. The chart controls take their place. */
@@ -2336,6 +2475,106 @@
     for (var i = 0; i < Math.min(AVATAR_AT_ONCE, queue.length); i++) runners.push(next());
     return Promise.all(runners).then(function () { return kept; });
   }
+  /* ---- Gmail history, read on this machine ----
+   * A Takeout mailbox is far too big to hold in memory, so it is streamed past
+   * a line at a time and only the headers are kept. Nothing is uploaded, no
+   * message body is read, and the file itself is never stored.
+   *
+   * What lands in Orbit is a count per correspondent and a handful of recent
+   * messages, each linking back to the thread in Gmail. */
+  var MBOX_MONTHS = 12, MBOX_KEEP_RECENT = 5;
+  function myAddresses() {
+    var out = [], account = A && A.current ? A.current() : null;
+    if (account && account.email) out.push(String(account.email).toLowerCase());
+    var me = personById(D.ME_ID);
+    if (me) String(D.attrs(me).email || "").split(/[,;]/).forEach(function (address) {
+      var a = address.trim().toLowerCase(); if (a.indexOf("@") > 0 && out.indexOf(a) === -1) out.push(a);
+    });
+    return out;
+  }
+  function readMailbox(file, onProgress) {
+    var Mbox = window.OrbitMbox;
+    if (!Mbox) return Promise.reject(new Error("The mailbox reader is unavailable in this build."));
+    var since = Date.now() - MBOX_MONTHS * 30.44 * 86400000;
+    var summary = Mbox.createSummary({ mine: myAddresses(), since: since, keepRecent: MBOX_KEEP_RECENT });
+    var reader = Mbox.createReader(function (headers) { summary.add(headers); });
+    var seen = 0, bytes = 0;
+    function feed(chunk) {
+      var lines = chunk.split("\n");
+      for (var i = 0; i < lines.length; i++) reader.line(lines[i]);
+      seen += lines.length;
+    }
+    /* Streaming keeps a multi-gigabyte export off the heap; a browser without
+     * streams falls back to reading it whole. */
+    if (file.stream && typeof TextDecoder === "function") {
+      var decoder = new TextDecoder("utf-8"), tail = "";
+      var stream = file.stream().getReader();
+      return (function pump() {
+        return stream.read().then(function (step) {
+          if (step.done) { feed(tail); reader.end(); return summary.result(); }
+          bytes += step.value.length;
+          var chunk = tail + decoder.decode(step.value, { stream: true });
+          var cut = chunk.lastIndexOf("\n");
+          tail = cut === -1 ? chunk : chunk.slice(cut + 1);
+          if (cut !== -1) feed(chunk.slice(0, cut));
+          if (onProgress) onProgress(bytes, file.size || 0);
+          return pump();
+        });
+      })();
+    }
+    return readFileText(file).then(function (value) {
+      feed(value); reader.end();
+      return summary.result();
+    });
+  }
+  /* One contact per correspondent, plus their recent messages as interactions —
+   * the same shape the calendar import already produces, so the review screen
+   * and the merge need no special case. */
+  function mailboxCandidates(result) {
+    var out = [];
+    result.people.forEach(function (row) {
+      out.push({
+        kind: "contact",
+        name: row.name || row.email.split("@")[0],
+        email: row.email,
+        category: row.name ? "individual" : "email",
+        emailTotal: row.total, emailSent: row.sent, emailReceived: row.received,
+        emailFirstAt: row.firstAt ? new Date(row.firstAt).toISOString() : "",
+        emailLastAt: row.lastAt ? new Date(row.lastAt).toISOString() : "",
+        sourceType: "gmail-import", sourceRef: "gmail:" + row.email
+      });
+      row.recent.forEach(function (message) {
+        out.push({
+          kind: "interaction",
+          title: message.subject,
+          summary: (message.direction === "sent" ? "You wrote to " : "From ") + (row.name || row.email),
+          occurredAt: new Date(message.at).toISOString(),
+          channel: "email",
+          direction: message.direction === "sent" ? "outbound" : "inbound",
+          link: message.link,
+          attendees: [{ name: row.name, email: row.email }],
+          sourceType: "gmail-import",
+          sourceRef: message.id ? "gmail:" + message.id : "gmail:" + row.email + ":" + message.at
+        });
+      });
+    });
+    return out;
+  }
+  function mailboxNote(result) {
+    return formatCount(result.counts.kept) + " message" + (result.counts.kept === 1 ? "" : "s") +
+      " from the last " + MBOX_MONTHS + " months, across " + formatCount(result.people.length) +
+      " correspondent" + (result.people.length === 1 ? "" : "s") + ". " +
+      formatCount(result.counts.skippedOld) + " older message" + (result.counts.skippedOld === 1 ? " was" : "s were") +
+      " left out. No message body was read and the mailbox itself is not stored.";
+  }
+  function reviewMailbox(file) {
+    setText("#sync-status", "READING " + String(file.name || "MAILBOX").toUpperCase() + "…");
+    return readMailbox(file, function (bytes, total) {
+      if (total && bytes % (4 * 1024 * 1024) < 65536) setText("#sync-status", "READING MAILBOX · " + Math.round(bytes / total * 100) + "%");
+    }).then(function (result) {
+      openImportReview([{ name: file.name, candidates: mailboxCandidates(result), skippedCount: 0 }], mailboxNote(result));
+    });
+  }
   function openImportPicker() { $("#contact-file").click(); }
   function openCalendarPicker() { $("#calendar-file").click(); }
   /* Duplicate detection lives in the shared, tested matching module. It returns
@@ -2394,7 +2633,7 @@
       { label: "These are accounts I follow", fn: function () { go("following"); } }
     ]);
   }
-  function openImportReview(results) {
+  function openImportReview(results, note) {
     var candidates = [], skipped = 0;
     results.forEach(function (result) { candidates = candidates.concat(result.candidates); skipped += result.skippedCount; });
     var label = results.length > 1 ? results.map(function (r) { return r.name; }).join(" + ") : (results[0] ? results[0].name : "");
@@ -2402,6 +2641,9 @@
     renderImportPreview();
     $("#import-modal").hidden = false;
     $("#import-select-all").focus();
+    /* A source with something particular to say gets the last word, after the
+     * generic preview has written its own summary. */
+    if (note) setText("#import-summary", note);
     var withPictures = candidates.filter(function (person) { return !!person.avatarUrl; }).length;
     setText("#sync-status", candidates.length
       ? candidates.length + " RECORD" + (candidates.length === 1 ? "" : "S") + " READY FOR REVIEW" + (withPictures ? " · " + formatCount(withPictures) + " WITH PICTURES" : "")
@@ -2412,6 +2654,8 @@
     if (!list.length || !window.OrbitNetworkImporters) return;
     var I = window.OrbitNetworkImporters;
     setText("#sync-status", "READING " + (list.length > 1 ? list.length + " FILES" : String(list[0].name || "FILE").toUpperCase()) + "…");
+    var mailbox = list.filter(function (file) { return /\.mbox$/i.test(String(file.name || "")); })[0];
+    if (mailbox) { reviewMailbox(mailbox).catch(function (error) { setText("#sync-status", error && error.message ? error.message : "MAILBOX ERROR"); }); return; }
     Promise.all(list.map(function (file) {
       return readFileText(file).then(function (value) {
         var result = I.review ? I.review(value, file.name) : { candidates: I.parse(value, file.name), skippedCount: 0 };
@@ -2456,7 +2700,9 @@
     }).filter(Boolean);
   }
   function contactAttrs(candidate, sourceType, sourceRef, stamp) {
-    var attrs = { preferredName: String(candidate.preferredName || "").trim(), entityKind: String(candidate.category || "person").trim(), role: String(candidate.role || "").trim(), organisation: String(candidate.organisation || "").trim(), location: String(candidate.location || "").trim(), email: String(candidate.email || "").trim(), phone: String(candidate.phone || "").trim(), phoneOther: String(candidate.phoneOther || "").trim(), whatsapp: String(candidate.whatsapp || "").trim(), signal: String(candidate.signal || "").trim(), instagram: String(candidate.instagram || "").trim(), facebook: String(candidate.facebook || "").trim(), website: String(candidate.website || "").trim(), x: String(candidate.x || "").trim(), address: String(candidate.address || "").trim(), workAddress: String(candidate.workAddress || "").trim(), birthday: String(candidate.birthday || "").trim(), interests: String(candidate.interests || "").trim(), relationship: String(candidate.relationship || "").trim(), note: String(candidate.note || "").trim(), photo: String(candidate.photo || "").trim(), tags: T ? T.parse(candidate.tags) : [], socialProfiles: parseSocialProfiles(candidate.socialProfiles), sourceType: sourceType === "manual" ? "user-entered" : sourceType, sourceRef: sourceRef, provenance: sourceType === "manual" ? "user-entered" : "imported", observedAt: stamp };
+    var attrs = { preferredName: String(candidate.preferredName || "").trim(), entityKind: String(candidate.category || "person").trim(), role: String(candidate.role || "").trim(), organisation: String(candidate.organisation || "").trim(), location: String(candidate.location || "").trim(), email: String(candidate.email || "").trim(), phone: String(candidate.phone || "").trim(), phoneOther: String(candidate.phoneOther || "").trim(), whatsapp: String(candidate.whatsapp || "").trim(), signal: String(candidate.signal || "").trim(), instagram: String(candidate.instagram || "").trim(), facebook: String(candidate.facebook || "").trim(), website: String(candidate.website || "").trim(), x: String(candidate.x || "").trim(), address: String(candidate.address || "").trim(), workAddress: String(candidate.workAddress || "").trim(), birthday: String(candidate.birthday || "").trim(), interests: String(candidate.interests || "").trim(), relationship: String(candidate.relationship || "").trim(), note: String(candidate.note || "").trim(), photo: String(candidate.photo || "").trim(),
+      emailTotal: candidate.emailTotal || "", emailSent: candidate.emailSent || "", emailReceived: candidate.emailReceived || "",
+      emailFirstAt: String(candidate.emailFirstAt || ""), emailLastAt: String(candidate.emailLastAt || ""), tags: T ? T.parse(candidate.tags) : [], socialProfiles: parseSocialProfiles(candidate.socialProfiles), sourceType: sourceType === "manual" ? "user-entered" : sourceType, sourceRef: sourceRef, provenance: sourceType === "manual" ? "user-entered" : "imported", observedAt: stamp };
     if (candidate.strength != null && candidate.strength !== "") attrs.strength = Number(candidate.strength);
     Object.keys(attrs).forEach(function (key) { if (attrs[key] === "" || (Array.isArray(attrs[key]) && !attrs[key].length)) delete attrs[key]; });
     return attrs;
@@ -2546,14 +2792,14 @@
     })[0] || null;
   }
   function interactionPart(item) {
-    var stamp = item.occurredAt || new Date().toISOString(), sourceRef = String(item.sourceRef || "calendar-import"), identity = sourceRef + "|" + item.title + "|" + stamp, id = state.store.entityId({ type: "interaction", identity: identity, label: item.title }), entity = { id: id, type: "interaction", label: item.title || "Calendar event", identity: identity, source: item.sourceType || "calendar-import", createdBy: "personal-network", attrs: { interactionType: "calendar event", occurredAt: stamp, summary: item.summary || "", location: item.location || "", channel: "calendar", sourceType: item.sourceType || "calendar-import", sourceRef: sourceRef, observedAt: new Date().toISOString() } }, part = { entities: [entity], links: [] };
+    var stamp = item.occurredAt || new Date().toISOString(), sourceRef = String(item.sourceRef || "calendar-import"), identity = sourceRef + "|" + item.title + "|" + stamp, id = state.store.entityId({ type: "interaction", identity: identity, label: item.title }), entity = { id: id, type: "interaction", label: item.title || "Calendar event", identity: identity, source: item.sourceType || "calendar-import", createdBy: "personal-network", attrs: { interactionType: item.channel === "email" ? "email" : "calendar event", occurredAt: stamp, summary: item.summary || "", location: item.location || "", channel: item.channel || "calendar", direction: item.direction || "", link: item.link || "", sourceType: item.sourceType || "calendar-import", sourceRef: sourceRef, observedAt: new Date().toISOString() } }, part = { entities: [entity], links: [] };
     (item.attendees || []).forEach(function (attendee) {
       var person = findPerson(attendee);
       if (!person && (attendee.name || attendee.email)) {
         var built = contactPart({ name: attendee.name || attendee.email.split("@")[0], email: attendee.email, sourceType: "calendar-import", sourceRef: sourceRef + ":" + (attendee.email || attendee.name) });
         if (built) { person = built.entity; part.entities = part.entities.concat(built.part.entities); part.links = part.links.concat(built.part.links); }
       }
-      if (person) part.links.push({ id: state.store.linkId({ from: person.id, to: id, type: "MENTIONED_IN" }), from: person.id, to: id, type: "MENTIONED_IN", source: "calendar-import", createdBy: "personal-network", attrs: { sourceType: "calendar-import", sourceRef: sourceRef } });
+      if (person) part.links.push({ id: state.store.linkId({ from: person.id, to: id, type: "MENTIONED_IN" }), from: person.id, to: id, type: "MENTIONED_IN", source: item.sourceType || "calendar-import", createdBy: "personal-network", attrs: { sourceType: item.sourceType || "calendar-import", sourceRef: sourceRef } });
     });
     return part;
   }
@@ -2854,6 +3100,7 @@
       if (iconPickerEl) { closeIconPicker(); return; }
       if (ctxMenuEl) { closeCtxMenu(); return; }
       if (Object.keys(state.selectedIds).length) { clearSelectedIds(); return; }
+      if (collapseAll()) { setText("#sync-status", "COLLAPSED"); return; }
       if (state.path) { clearPath(); return; }
       if (state.coldMode) { toggleColdMode(); return; }
       if (activeTags().length || activeKinds().length) { clearTagFilter(); clearKindFilter(); setText("#sync-status", "FILTER CLEARED"); return; }

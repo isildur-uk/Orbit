@@ -146,6 +146,7 @@
       title: text(item && item.label || a.title || a.subject || a.summary || a.channel || "Interaction"),
       summary: text(a.summary || a.content || a.note || a.snippet || ""),
       occurredAt: occurred, channel: text(a.channel || a.sourceSystem || item && item.source || ""),
+      direction: text(a.direction || ""), link: text(a.link || ""),
       sourceType: src.type, sourceRef: src.ref, confidence: src.confidence, entity: item
     };
   }
@@ -235,7 +236,7 @@
     var currentByType = Object.create(null);
     currentFacts.forEach(function (f) { if (!currentByType[f.type]) currentByType[f.type] = f; });
     var allHistory = interactions.map(function (x) {
-      return { kind: "interaction", date: x.occurredAt, title: x.title, summary: x.summary, sourceType: x.sourceType, sourceRef: x.sourceRef, item: x };
+      return { kind: "interaction", date: x.occurredAt, title: x.title, summary: x.summary, sourceType: x.sourceType, sourceRef: x.sourceRef, link: x.link, item: x };
     }).concat(facts.filter(function (f) { return f.observedAt || f.validFrom; }).map(function (f) {
       return { kind: "fact", date: f.validFrom || f.observedAt, title: f.label, summary: f.value, sourceType: f.sourceType, sourceRef: f.sourceRef, item: f };
     })).sort(function (a, b) { return dateMs(b.date) - dateMs(a.date); });

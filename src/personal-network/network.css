@@ -662,3 +662,6 @@ kbd{padding:2px 6px;border:1px solid var(--network-line);border-radius:var(--net
 .tag-chip.kind{--tag-colour:var(--network-muted)}
 .tag-chip.kind.active{border-color:var(--network-accent);color:var(--network-text)}
 .tag-bar-split{width:1px;align-self:stretch;margin:2px 3px;background:var(--network-line)}
+
+.timeline-link{color:var(--network-text);text-decoration:none;border-bottom:1px solid var(--network-line)}
+.timeline-link:hover{color:var(--network-accent);border-bottom-color:var(--network-accent)}
