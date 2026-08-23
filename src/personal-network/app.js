@@ -619,6 +619,7 @@
         window.__ORBIT_RESTORE__ = function (tid) { trashRestore(tid); return trashCount(); };
         window.__ORBIT_PEOPLE__ = function () { return state.snapshot ? state.snapshot.entities.filter(D.isPerson).length : 0; };
         window.__ORBIT_SELECTED__ = function () { return state.selectedId; };
+        window.__ORBIT_MULTI__ = function () { return Object.keys(state.selectedIds); };
         window.__ORBIT_VIEW__ = function () { try { var v = state.network.getViewPosition(); return { scale: Number(state.network.getScale().toFixed(4)), x: Math.round(v.x), y: Math.round(v.y) }; } catch (e) { return null; } };
         window.__ORBIT_TOGGLE__ = function (id) { toggleSelectedId(id); return Object.keys(state.selectedIds); };
         window.__ORBIT_NEIGHBOURS__ = function (id) { return neighboursOf(String(id)).map(personLabel); };
@@ -783,8 +784,23 @@
   /* With a profile open, left/right flip to the previous/next person (wrapping)
    * and recentre the graph on them, so you can review the whole network by keyboard. */
   function cycleConnection(dir) {
-    if (!state.selectedId) return;
     var list = allPeopleIds();
+    if (!list.length) return;
+    /* No open profile but people highlighted (a box-select, or a drag that
+     * caught them by accident): collapse to the first of them and show who that
+     * is, rather than leaving the keys inert. */
+    if (!state.selectedId) {
+      var highlighted = list.filter(function (p) { return state.selectedIds[p]; });
+      var resume = highlighted[0] || (list.indexOf(state.cycleAnchor) !== -1 ? state.cycleAnchor : "");
+      if (resume) {
+        state.selectedId = resume; state.cycleAnchor = resume; state.cycleIndex = -1;
+        clearEdgeSelection(); clearSelectedIds();
+        render(); openDossier(resume);
+        setText("#sync-status", "PROFILE " + (list.indexOf(resume) + 1) + " OF " + list.length + " · " + personLabel(resume).toUpperCase());
+        return;
+      }
+      return;
+    }
     if (list.length < 2) return;
     var cur = list.indexOf(String(state.selectedId));
     var idx = ((cur < 0 ? 0 : cur) + (dir < 0 ? -1 : 1)) % list.length;
@@ -1068,6 +1084,7 @@
   function clearSelectedIds() { if (Object.keys(state.selectedIds).length) { state.selectedIds = {}; renderGraph(state.snapshot); } }
   function deleteSelectedIds() {
     var ids = Object.keys(state.selectedIds); if (!ids.length || !state.store) return;
+    var successor = nextPersonAfter(ids);
     pushUndo();
     var list = trashRead();
     ids.forEach(function (id) {
@@ -1078,7 +1095,9 @@
     trashWrite(list);
     state.store.merge({ entities: [], links: [] }); /* one persist + re-render */
     state.selectedIds = {};
+    if (successor) { state.selectedId = successor; state.cycleAnchor = successor; state.cycleIndex = -1; }
     render();
+    if (successor) openDossier(successor);
     updateTrashButton();
     setText("#sync-status", ids.length + " MOVED TO RECYCLE BIN");
   }
@@ -1436,13 +1455,17 @@
       (gained ? " · " + gained + " DETAIL" + (gained === 1 ? "" : "S") + " ADDED" : "") +
       (moved ? " · " + moved + " RECORD" + (moved === 1 ? "" : "S") + " MOVED" : ""));
   }
-  /* Where the ←/→ walk would land next once this person is gone; "" when the
-   * network would be left with nobody. */
-  function nextPersonAfter(id) {
-    var all = allPeopleIds(), cur = all.indexOf(String(id));
-    var rest = all.filter(function (p) { return p !== String(id); });
-    if (!rest.length) return "";
-    return rest[cur < 0 ? 0 : cur % rest.length];
+  /* Where the ←/→ walk lands once these people are gone — the next person after
+   * the last of them, wrapping. "" when the network would be left with nobody. */
+  function nextPersonAfter(ids) {
+    var all = allPeopleIds(), going = Object.create(null), last = -1;
+    (Array.isArray(ids) ? ids : [ids]).forEach(function (i) { going[String(i)] = true; });
+    all.forEach(function (person, index) { if (going[person]) last = index; });
+    for (var step = 1; step <= all.length; step++) {
+      var candidate = all[((last < 0 ? 0 : last) + step) % all.length];
+      if (!going[candidate]) return candidate;
+    }
+    return "";
   }
   function removeContact(id) {
     if (!state.store) return;
@@ -1450,7 +1473,7 @@
     var record = captureForTrash(id);
     /* Deleting the profile you are reading moves on to the next contact rather
      * than dropping you back to an empty panel. */
-    var successor = id === state.selectedId ? nextPersonAfter(id) : "";
+    var successor = id === state.selectedId ? nextPersonAfter([id]) : "";
     pushUndo();
     if (successor) { state.selectedId = successor; state.cycleAnchor = successor; state.cycleIndex = -1; }
     else if (id === state.selectedId) closeDossier();
@@ -1912,7 +1935,7 @@
           if (state.selectedId) { event.preventDefault(); removeContact(state.selectedId); return; }
         }
       }
-      if ((event.key === "ArrowLeft" || event.key === "ArrowRight") && !visibleModal() && state.selectedId) {
+      if ((event.key === "ArrowLeft" || event.key === "ArrowRight") && !visibleModal() && (state.selectedId || Object.keys(state.selectedIds).length || state.cycleAnchor)) {
         var atag = document.activeElement ? document.activeElement.tagName : "";
         if (atag !== "INPUT" && atag !== "TEXTAREA" && atag !== "SELECT") { event.preventDefault(); cycleConnection(event.key === "ArrowLeft" ? -1 : 1); return; }
       }
