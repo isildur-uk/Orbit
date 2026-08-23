@@ -843,6 +843,14 @@
         };
         window.__ORBIT_SETLABEL__ = function (linkId, value) { setRelationshipType(linkId, value); return __ORBIT_LABELOF__(linkId); };
         window.__ORBIT_LABELOF__ = function (linkId) { var l = linkById(linkId); return l ? String(D.attrs(l).relationshipType || "") : null; };
+        window.__ORBIT_PASTE__ = function (payload, direction) {
+          var I = window.OrbitNetworkImporters;
+          var name = "benwlsn11_IG_" + (direction === "following" ? "Following" : "Followers");
+          var result = I.review(payload, name);
+          openImportReview([{ name: name, candidates: result.candidates || [], skippedCount: result.skippedCount || 0 }]);
+          return (result.candidates || []).filter(function (c) { return !!c.avatarUrl; }).length;
+        };
+        window.__ORBIT_PHOTO__ = function (id) { var p = personById(id); return p ? String(D.attrs(p).photo || "") : null; };
         window.__ORBIT_EMPTYPOINT__ = function () {
           var el = document.querySelector("#network"), r = el.getBoundingClientRect();
           for (var y = 70; y < r.height - 70; y += 24) {
@@ -1755,16 +1763,25 @@
   function downscaleImage(dataUrl, max) {
     return new Promise(function (resolve) {
       var img = new Image();
+      var remote = !/^data:/i.test(String(dataUrl || ""));
+      /* Anything not already inline needs permission to be read back out of the
+       * canvas; without it the browser taints the canvas and we keep nothing. */
+      if (remote) img.crossOrigin = "anonymous";
       img.onload = function () {
-        var scale = Math.min(1, max / Math.max(img.width || max, img.height || max));
-        var w = Math.max(1, Math.round((img.width || max) * scale)), h = Math.max(1, Math.round((img.height || max) * scale));
+        /* An image that loaded with no pixels — a broken or expired address —
+         * is nothing. Substituting a default size here used to manufacture a
+         * blank picture and hand it to the chart. */
+        var natW = img.naturalWidth || img.width || 0, natH = img.naturalHeight || img.height || 0;
+        if (!natW || !natH) { resolve(remote ? "" : dataUrl); return; }
+        var scale = Math.min(1, max / Math.max(natW, natH));
+        var w = Math.max(1, Math.round(natW * scale)), h = Math.max(1, Math.round(natH * scale));
         try {
           var canvas = document.createElement("canvas"); canvas.width = w; canvas.height = h;
           canvas.getContext("2d").drawImage(img, 0, 0, w, h);
           resolve(canvas.toDataURL("image/jpeg", 0.82));
-        } catch (e) { resolve(dataUrl); }
+        } catch (e) { resolve(remote ? "" : dataUrl); }
       };
-      img.onerror = function () { resolve(dataUrl); };
+      img.onerror = function () { resolve(remote ? "" : dataUrl); };
       img.src = dataUrl;
     });
   }
@@ -2295,6 +2312,30 @@
       setVaultStatus(error && error.message ? error.message : "The vault could not be imported.");
     });
   }
+  /* Profile pictures come down once, small, and are kept inline from then on.
+   * Instagram's addresses are signed and expire, so nothing remote is ever
+   * stored — only the pixels, at the size a node actually draws.
+   *
+   * A few at a time: 280 simultaneous requests would be throttled, and a
+   * failure is not an error. A picture that cannot be read back leaves the
+   * account with its handle glyph, which is what it had before. */
+  var AVATAR_PIXELS = 64, AVATAR_AT_ONCE = 6;
+  function fetchAvatars(candidates, onProgress) {
+    var queue = candidates.slice(), done = 0, kept = 0;
+    function next() {
+      var person = queue.shift();
+      if (!person) return Promise.resolve();
+      return downscaleImage(person.avatarUrl, AVATAR_PIXELS).then(function (photo) {
+        if (photo && /^data:image\//i.test(photo)) { person.photo = photo; kept++; }
+        done++;
+        if (onProgress) onProgress(done, kept);
+        return next();
+      }).catch(function () { done++; return next(); });
+    }
+    var runners = [];
+    for (var i = 0; i < Math.min(AVATAR_AT_ONCE, queue.length); i++) runners.push(next());
+    return Promise.all(runners).then(function () { return kept; });
+  }
   function openImportPicker() { $("#contact-file").click(); }
   function openCalendarPicker() { $("#calendar-file").click(); }
   /* Duplicate detection lives in the shared, tested matching module. It returns
@@ -2338,6 +2379,34 @@
   }
   /* Several files review together, so a followers list and a following list
    * land in one pass and every mutual follow is known before anything merges. */
+  /* A pasted list has no file name, so the two things a name would have said —
+   * whose list it is and which way it runs — are asked for once. */
+  function reviewPasted(payload, x, y) {
+    var I = window.OrbitNetworkImporters; if (!I) return;
+    var me = personById(D.ME_ID), mine = me ? igHandle(D.attrs(me).instagram) : "";
+    function go(direction) {
+      var name = (mine || "instagram") + "_IG_" + (direction === "following" ? "Following" : "Followers");
+      var result = I.review(payload, name);
+      openImportReview([{ name: name, candidates: result.candidates || [], skippedCount: result.skippedCount || 0 }]);
+    }
+    showCtxMenu(x, y, [
+      { label: "These accounts follow me", fn: function () { go("follower"); } },
+      { label: "These are accounts I follow", fn: function () { go("following"); } }
+    ]);
+  }
+  function openImportReview(results) {
+    var candidates = [], skipped = 0;
+    results.forEach(function (result) { candidates = candidates.concat(result.candidates); skipped += result.skippedCount; });
+    var label = results.length > 1 ? results.map(function (r) { return r.name; }).join(" + ") : (results[0] ? results[0].name : "");
+    state.importDraft = { fileName: label, candidates: candidates, skippedCount: skipped, matches: importMatches(candidates), selected: candidates.map(function () { return true; }) };
+    renderImportPreview();
+    $("#import-modal").hidden = false;
+    $("#import-select-all").focus();
+    var withPictures = candidates.filter(function (person) { return !!person.avatarUrl; }).length;
+    setText("#sync-status", candidates.length
+      ? candidates.length + " RECORD" + (candidates.length === 1 ? "" : "S") + " READY FOR REVIEW" + (withPictures ? " · " + formatCount(withPictures) + " WITH PICTURES" : "")
+      : "NO USABLE RECORDS FOUND");
+  }
   function reviewImport(files) {
     var list = files && files.length ? Array.prototype.slice.call(files) : (files ? [files] : []);
     if (!list.length || !window.OrbitNetworkImporters) return;
@@ -2349,14 +2418,7 @@
         return { name: file.name, candidates: result.candidates || [], skippedCount: result.skippedCount || 0 };
       });
     })).then(function (results) {
-      var candidates = [], skipped = 0;
-      results.forEach(function (result) { candidates = candidates.concat(result.candidates); skipped += result.skippedCount; });
-      var label = results.length > 1 ? results.map(function (r) { return r.name; }).join(" + ") : (results[0] ? results[0].name : "");
-      state.importDraft = { fileName: label, candidates: candidates, skippedCount: skipped, matches: importMatches(candidates), selected: candidates.map(function () { return true; }) };
-      renderImportPreview();
-      $("#import-modal").hidden = false;
-      $("#import-select-all").focus();
-      setText("#sync-status", candidates.length ? candidates.length + " RECORD" + (candidates.length === 1 ? "" : "S") + " READY FOR REVIEW" : "NO USABLE RECORDS FOUND");
+      openImportReview(results);
     }).catch(function (error) {
       setText("#sync-status", error && error.message ? error.message : "IMPORT ERROR");
     });
@@ -2394,7 +2456,7 @@
     }).filter(Boolean);
   }
   function contactAttrs(candidate, sourceType, sourceRef, stamp) {
-    var attrs = { preferredName: String(candidate.preferredName || "").trim(), entityKind: String(candidate.category || "person").trim(), role: String(candidate.role || "").trim(), organisation: String(candidate.organisation || "").trim(), location: String(candidate.location || "").trim(), email: String(candidate.email || "").trim(), phone: String(candidate.phone || "").trim(), phoneOther: String(candidate.phoneOther || "").trim(), whatsapp: String(candidate.whatsapp || "").trim(), signal: String(candidate.signal || "").trim(), instagram: String(candidate.instagram || "").trim(), facebook: String(candidate.facebook || "").trim(), website: String(candidate.website || "").trim(), x: String(candidate.x || "").trim(), address: String(candidate.address || "").trim(), workAddress: String(candidate.workAddress || "").trim(), birthday: String(candidate.birthday || "").trim(), interests: String(candidate.interests || "").trim(), relationship: String(candidate.relationship || "").trim(), note: String(candidate.note || "").trim(), tags: T ? T.parse(candidate.tags) : [], socialProfiles: parseSocialProfiles(candidate.socialProfiles), sourceType: sourceType === "manual" ? "user-entered" : sourceType, sourceRef: sourceRef, provenance: sourceType === "manual" ? "user-entered" : "imported", observedAt: stamp };
+    var attrs = { preferredName: String(candidate.preferredName || "").trim(), entityKind: String(candidate.category || "person").trim(), role: String(candidate.role || "").trim(), organisation: String(candidate.organisation || "").trim(), location: String(candidate.location || "").trim(), email: String(candidate.email || "").trim(), phone: String(candidate.phone || "").trim(), phoneOther: String(candidate.phoneOther || "").trim(), whatsapp: String(candidate.whatsapp || "").trim(), signal: String(candidate.signal || "").trim(), instagram: String(candidate.instagram || "").trim(), facebook: String(candidate.facebook || "").trim(), website: String(candidate.website || "").trim(), x: String(candidate.x || "").trim(), address: String(candidate.address || "").trim(), workAddress: String(candidate.workAddress || "").trim(), birthday: String(candidate.birthday || "").trim(), interests: String(candidate.interests || "").trim(), relationship: String(candidate.relationship || "").trim(), note: String(candidate.note || "").trim(), photo: String(candidate.photo || "").trim(), tags: T ? T.parse(candidate.tags) : [], socialProfiles: parseSocialProfiles(candidate.socialProfiles), sourceType: sourceType === "manual" ? "user-entered" : sourceType, sourceRef: sourceRef, provenance: sourceType === "manual" ? "user-entered" : "imported", observedAt: stamp };
     if (candidate.strength != null && candidate.strength !== "") attrs.strength = Number(candidate.strength);
     Object.keys(attrs).forEach(function (key) { if (attrs[key] === "" || (Array.isArray(attrs[key]) && !attrs[key].length)) delete attrs[key]; });
     return attrs;
@@ -2497,6 +2559,19 @@
   }
   function mergeImport() {
     if (!state.importDraft) return;
+    var draft = state.importDraft;
+    /* Anything carrying a picture address fetches first, so the merge writes the
+     * person and their photo in one go. */
+    var wanted = draft.candidates.filter(function (person, index) { return draft.selected[index] && person.avatarUrl && !person.photo; });
+    if (wanted.length && !draft.avatarsDone) {
+      draft.avatarsDone = true;
+      setText("#sync-status", "FETCHING " + formatCount(wanted.length) + " PROFILE PICTURES…");
+      setText("#import-summary", "Fetching " + formatCount(wanted.length) + " profile pictures. Any that cannot be read keep their handle glyph.");
+      fetchAvatars(wanted, function (done, kept) {
+        if (done % 25 === 0 || done === wanted.length) setText("#sync-status", "PICTURES " + formatCount(done) + "/" + formatCount(wanted.length) + " · " + formatCount(kept) + " KEPT");
+      }).then(function (kept) { draft.avatarsKept = kept; mergeImport(); });
+      return;
+    }
     if (!state.store) {
       setText("#sync-status", "WORKSPACE LOADING");
       setText("#import-summary", "Orbit is still opening its local workspace. The selected contact will merge when it is ready.");
@@ -2538,8 +2613,8 @@
         setText("#import-summary", "Nothing is selected. Select at least one contact, then try again.");
         return;
       }
-      var draft = state.importDraft;
       var matchedCount = draft.matches ? draft.matches.reduce(function (count, match, index) { return count + (match && draft.selected[index] ? 1 : 0); }, 0) : 0;
+      var picturesKept = draft.avatarsKept || 0;
       pushUndo();
       var result = state.store.merge(part);
       closeImport();
@@ -2549,7 +2624,8 @@
       } else {
         setText("#sync-status", "IMPORTED " + formatCount(selected) + " CONTACT" + (selected === 1 ? "" : "S") +
           (matchedCount ? " · " + formatCount(matchedCount) + " MATCHED" : "") +
-          (follows ? " · " + formatCount(follows) + " FOLLOW LINK" + (follows === 1 ? "" : "S") : ""));
+          (follows ? " · " + formatCount(follows) + " FOLLOW LINK" + (follows === 1 ? "" : "S") : "") +
+          (picturesKept ? " · " + formatCount(picturesKept) + " PICTURE" + (picturesKept === 1 ? "" : "S") : ""));
       }
     } catch (error) {
       setText("#sync-status", "IMPORT ERROR");
@@ -2738,6 +2814,20 @@
     document.addEventListener("click", function (event) {
       if (ctxMenuEl && !ctxMenuEl.contains(event.target)) closeCtxMenu();
       if (iconPickerEl && !iconPickerEl.contains(event.target)) closeIconPicker();
+    });
+    /* Pasting a copied follower list is the shortest route in: the HTML flavour
+     * of the clipboard still carries every avatar. */
+    document.addEventListener("paste", function (event) {
+      var tag = event.target && event.target.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || (event.target && event.target.isContentEditable)) return;
+      if (visibleModal() || !window.OrbitNetworkImporters) return;
+      var clip = event.clipboardData; if (!clip) return;
+      var html = clip.getData("text/html"), plain = clip.getData("text/plain");
+      var payload = html && /<\s*img\b/i.test(html) ? html : (plain || html);
+      if (!payload || !window.OrbitNetworkImporters.looksLikeHandleList(
+        window.OrbitNetworkImporters.looksLikeHtml(payload) ? payload.replace(/<[^>]+>/g, "\n") : payload)) return;
+      event.preventDefault();
+      reviewPasted(payload, window.innerWidth / 2, 140);
     });
     document.addEventListener("keydown", function (event) {
       trapModalTab(event);

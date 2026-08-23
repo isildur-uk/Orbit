@@ -351,6 +351,60 @@
     }
     return collect(out);
   }
+  /* ---- The same list, kept as HTML ----
+   * Copying a follower list as plain text throws the avatars away. The HTML
+   * flavour of the same copy keeps them, and Instagram labels every avatar
+   * "<handle>'s profile picture" — which pairs each image to its account by
+   * name rather than by position, so no amount of nesting can misalign them.
+   *
+   * Deliberately regex-based rather than DOM-based: this module stays pure so
+   * the same code runs in the browser and under test in Node. */
+  var IMG_TAG = /<img\b[^>]*>/gi;
+  function attrOf(tag, name) {
+    var m = new RegExp(name + '\\s*=\\s*"([^"]*)"', "i").exec(tag);
+    if (!m) m = new RegExp(name + "\\s*=\\s*'([^']*)'", "i").exec(tag);
+    return m ? m[1] : "";
+  }
+  function decodeEntities(value) {
+    return text(value)
+      .replace(/&#0?39;|&apos;|&#x27;/gi, "'")
+      .replace(/&quot;|&#34;/gi, '"')
+      .replace(/&nbsp;|&#160;/gi, " ")
+      .replace(/&lt;/gi, "<").replace(/&gt;/gi, ">")
+      .replace(/&amp;/gi, "&");
+  }
+  /* handle -> avatar address, read off the alt text. */
+  function avatarMap(html) {
+    var out = Object.create(null), tags = text(html).match(IMG_TAG) || [];
+    tags.forEach(function (tag) {
+      var alt = decodeEntities(attrOf(tag, "alt"));
+      var named = /^(.+?)'s profile picture$/i.exec(alt);
+      if (!named) return;
+      var handle = lower(named[1]);
+      var src = decodeEntities(attrOf(tag, "src") || attrOf(tag, "data-src"));
+      if (handle && src && !out[handle]) out[handle] = src;
+    });
+    return out;
+  }
+  function looksLikeHtml(value) { return /<\s*(?:html|body|div|img|a|span)\b/i.test(text(value).slice(0, 4000)); }
+  function htmlToLines(html) {
+    return decodeEntities(text(html)
+      .replace(/<script[\s\S]*?<\/script>/gi, " ")
+      .replace(/<style[\s\S]*?<\/style>/gi, " ")
+      .replace(/<[^>]+>/g, "\n"));
+  }
+  /* The text of the page goes through the very same pairing the plain paste
+   * uses, then each account picks up its picture by handle. */
+  function instagramHtml(html, fileName) {
+    var avatars = avatarMap(html);
+    var result = handleList(htmlToLines(html), fileName);
+    result.candidates.forEach(function (person) {
+      var url = avatars[lower(person.igHandle)];
+      if (url) person.avatarUrl = url;
+    });
+    result.avatarCount = result.candidates.filter(function (person) { return !!person.avatarUrl; }).length;
+    return result;
+  }
   /* Parses contact-shaped JSON: Meta "Download Your Information" exports
    * (Facebook friends, Instagram followers/following) and generic arrays or
    * objects of contact records. Orbit's own vault files use a separate importer. */
@@ -390,12 +444,16 @@
     if (/\.ics$|ical|calendar/.test(name) || /BEGIN:VEVENT/i.test(value)) { var events = calendar(value, fileName || "calendar.ics"); return { candidates: events, skippedCount: 0 }; }
     if (/\.json$/.test(name)) return json(value, fileName || "export.json");
     if (/^\s*[\[{]/.test(value)) { var parsed = json(value, fileName || "export.json"); if (parsed.candidates.length) return parsed; }
+    if (looksLikeHtml(value)) {
+      var stripped = htmlToLines(value);
+      if (looksLikeHandleList(stripped)) return instagramHtml(value, fileName || "instagram.html");
+    }
     if (looksLikeHandleList(value)) return handleList(value, fileName || "instagram.txt");
     return csv(value, fileName || "contacts.csv");
   }
   /* parse() keeps its original array contract for any existing caller/test. */
   function parse(input, fileName) { return review(input, fileName).candidates; }
-  var api = { parse: parse, review: review, csv: csv, vcard: vcard, calendar: calendar, json: json, handleList: handleList, looksLikeHandleList: looksLikeHandleList, handleListMeta: handleListMeta };
+  var api = { parse: parse, review: review, csv: csv, vcard: vcard, calendar: calendar, json: json, handleList: handleList, looksLikeHandleList: looksLikeHandleList, handleListMeta: handleListMeta, instagramHtml: instagramHtml, avatarMap: avatarMap, looksLikeHtml: looksLikeHtml };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   if (root) root.OrbitNetworkImporters = api;
 })(typeof window !== "undefined" ? window : globalThis);

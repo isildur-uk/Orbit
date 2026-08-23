@@ -84,8 +84,17 @@
     if (ck.phone && ck.phone === pk.phone) { s += 90; signals.push({ w: 90, why: "Same phone number" }); }
     var sameOrg = ck.organisation && ck.organisation === pk.organisation;
     if (ck.name && ck.name === pk.name) {
-      s += 55;
-      signals.push({ w: sameOrg ? 80 : 60, why: sameOrg ? ("Same name at " + text(pk.organisation ? titleCase(pk.organisation) : "the same organisation")) : "Same name" });
+      /* "Chris" and "Chris" are not evidence of anything — a first name on its
+       * own is the weakest signal here, and on its own it must not be enough to
+       * merge two people. Paired with a shared organisation it just clears the
+       * bar; a full name still stands by itself. */
+      var oneWord = ck.name.indexOf(" ") === -1;
+      s += oneWord ? 35 : 55;
+      signals.push({
+        w: sameOrg ? 80 : (oneWord ? 35 : 60),
+        why: sameOrg ? ("Same name at " + text(pk.organisation ? titleCase(pk.organisation) : "the same organisation"))
+          : (oneWord ? "Same first name" : "Same name")
+      });
     } else if (ck.name && pk.name && ck.name.split(" ").length > 1 && pk.name.indexOf(ck.name) !== -1) {
       s += 40;
       signals.push({ w: 40, why: "Closely matching name" });
