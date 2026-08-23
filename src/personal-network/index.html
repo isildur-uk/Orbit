@@ -14,6 +14,11 @@
   <link rel="stylesheet" href="network.css?v=20260822-ferrari-gradient-pass">
 </head>
 <body>
+  <script>
+    /* OAuth popup guard: if this window is the sign-in popup, hide the app chrome
+     * and show a minimal message — auth-cloud.js closes it once the session lands. */
+    if (window.opener && window.name === "orbit-oauth") document.documentElement.setAttribute("data-oauth-popup", "1");
+  </script>
   <div id="boot-screen" class="boot-screen" role="status" aria-live="polite">
     <div class="boot-inner">
       <div class="wordmark">OR<span>BIT</span></div>
@@ -96,27 +101,6 @@
         <div class="product-label">PERSONAL NETWORK</div>
       </div>
 
-      <div class="panel-section source-section">
-        <div class="section-kicker">INPUT SOURCES</div>
-        <div class="source-list" id="source-list"></div>
-      </div>
-
-      <div class="panel-section analysed-section">
-        <div class="section-kicker">ANALYSED</div>
-        <div class="metric-row"><strong data-stat="interactions">0</strong><span>INTERACTIONS</span></div>
-        <div class="metric-row"><strong data-stat="people">0</strong><span>PEOPLE</span></div>
-        <div class="metric-row"><strong data-stat="relationships">0</strong><span>RELATIONSHIPS</span></div>
-      </div>
-
-      <div class="panel-section surfaced-section">
-        <div class="section-kicker">SURFACED</div>
-        <div class="surface-row"><strong data-stat="introductions">0</strong><span>INTRODUCTIONS</span></div>
-        <div class="surface-row"><strong data-stat="reconnect">0</strong><span>RECONNECT</span></div>
-        <div class="surface-row"><strong data-stat="promises">0</strong><span>OPEN PROMISES</span></div>
-        <div class="surface-row"><strong data-stat="opportunities">0</strong><span>OPPORTUNITIES</span></div>
-      </div>
-
-      <div class="intel-note" id="storage-note"></div>
     </aside>
 
     <main class="workspace">
@@ -124,6 +108,7 @@
         <div class="toolbar-context">
           <span class="toolbar-title">NETWORK / ORBIT</span>
           <span class="toolbar-status" id="sync-status">READY</span>
+          <span class="toolbar-count" id="toolbar-count"></span>
         </div>
         <div class="toolbar-actions">
           <label class="search-control">
@@ -180,6 +165,10 @@
             <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><circle cx="8" cy="8" r="1.6" fill="currentColor"/><circle cx="3" cy="3" r="1.4" fill="currentColor"/><circle cx="13" cy="3" r="1.4" fill="currentColor"/><circle cx="3" cy="13" r="1.4" fill="currentColor"/><circle cx="13" cy="13" r="1.4" fill="currentColor"/><path d="M8 8L3.4 3.4M8 8l4.6-4.6M8 8l-4.6 4.6M8 8l4.6 4.6" stroke="currentColor" stroke-width="1" opacity=".65"/></svg>
             <span id="layout-tool-label" class="graph-tool-label">Orbit rings</span>
           </button>
+          <button type="button" class="graph-tool icon-only" data-action="recycle-bin" title="Recycle bin (empty)" aria-label="Recycle bin">
+            <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M3 4.5h10M6.5 4.5V3.2c0-.4.3-.7.7-.7h1.6c.4 0 .7.3.7.7v1.3M4.2 4.5l.6 8.3c.03.5.4.9.9.9h4.6c.5 0 .87-.4.9-.9l.6-8.3M6.6 7v4M9.4 7v4" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <span id="recycle-count" class="recycle-count" hidden></span>
+          </button>
           <span class="graph-tools-hint">Right-click (or long-press) a person to link, edit or photo · the chart to add someone</span>
         </div>
         <div id="rubber-band" class="rubber-band" aria-hidden="true"></div>
@@ -210,7 +199,12 @@
     </main>
 
     <aside id="person-dossier" class="person-dossier" aria-label="Contact profile" hidden>
-      <button class="dossier-close" type="button" data-action="close-dossier" aria-label="Close dossier"><svg class="close-icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M4 4l8 8M12 4l-8 8" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></button>
+      <button class="dossier-close" type="button" data-action="close-dossier" aria-label="Close profile"><svg class="close-icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M4 4l8 8M12 4l-8 8" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></button>
+      <div class="dossier-placeholder" id="dossier-placeholder">
+        <svg viewBox="0 0 40 40" width="34" height="34" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><circle cx="20" cy="14" r="6"/><path d="M8 33c1.5-6 6.5-9 12-9s10.5 3 12 9"/></svg>
+        <strong>No one selected</strong>
+        <span>Click a person in the graph to see their profile here. Use ← / → to step through their connections.</span>
+      </div>
       <div class="section-kicker">CONTACT PROFILE</div>
       <div class="dossier-header">
         <div id="dossier-avatar" class="dossier-avatar" aria-hidden="true" hidden></div>
@@ -408,6 +402,19 @@
       <p id="connections-status" class="auth-status" role="status" aria-live="polite"></p>
       <p class="form-note">Every import — live or from a file — passes through the review screen before anything is merged. Accepts .csv, .vcf, and .json (Facebook / Instagram exports). You can also drag a file anywhere onto Orbit.</p>
       <div class="modal-actions"><button class="toolbar-button" type="button" data-action="close-connections">Done</button></div>
+    </section>
+  </div>
+
+  <div id="recycle-modal" class="modal-layer" hidden>
+    <section class="person-modal recycle-modal" role="dialog" aria-modal="true" aria-labelledby="recycle-modal-title">
+      <div class="modal-heading">
+        <div><div class="section-kicker">RESTORE OR REMOVE</div><h2 id="recycle-modal-title">Recycle bin</h2></div>
+        <button class="dossier-close" type="button" data-action="close-recycle" aria-label="Close"><svg class="close-icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M4 4l8 8M12 4l-8 8" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></button>
+      </div>
+      <p class="vault-intro">Deleted people wait here. Restore them to your network, or remove them for good.</p>
+      <div id="recycle-list" class="recycle-list" role="list"></div>
+      <p id="recycle-empty" class="profile-empty" hidden>The recycle bin is empty.</p>
+      <div class="modal-actions"><button class="toolbar-button danger" type="button" data-action="empty-bin">Empty bin</button><button class="toolbar-button" type="button" data-action="close-recycle">Done</button></div>
     </section>
   </div>
 

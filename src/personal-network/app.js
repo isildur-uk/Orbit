@@ -103,8 +103,10 @@
   var PROVIDER_LABELS = { google: "Google", apple: "Apple", facebook: "Facebook", linkedin: "LinkedIn" };
   function handleProviderSignIn(provider) {
     if (!A || !A.signInWithProvider) { setAuthStatus("Social sign-in is not configured for this build.", true); return; }
-    setAuthStatus("Opening " + (PROVIDER_LABELS[provider] || provider) + "…");
-    A.signInWithProvider(provider).catch(handleAuthError);
+    setAuthStatus("Opening " + (PROVIDER_LABELS[provider] || provider) + " in a popup…");
+    A.signInWithProvider(provider, { popup: true }).then(function (result) {
+      if (result && result.popup) setAuthStatus("Finish signing in with " + (PROVIDER_LABELS[provider] || provider) + " in the popup window…");
+    }).catch(handleAuthError);
   }
   function saveAccountProfile(form) {
     var data = new FormData(form), values = { name: data.get("name") };
@@ -292,10 +294,15 @@
 
   function setStats(snapshot) {
     Object.keys(snapshot.stats).forEach(function (key) { setText('[data-stat="' + key + '"]', formatCount(snapshot.stats[key])); });
-    setText("#network-count", formatCount(snapshot.stats.people) + " people · " + formatCount(snapshot.stats.relationships) + " relationships");
+    var people = formatCount(snapshot.stats.people), rels = formatCount(snapshot.stats.relationships);
+    setText("#network-count", people + " people · " + rels + " relationships");
+    setText("#toolbar-count", people + " " + (snapshot.stats.people === 1 ? "person" : "people") + " · " + rels + " link" + (snapshot.stats.relationships === 1 ? "" : "s"));
     var connected = snapshot.sources.filter(function (source) { return source.connected; }).length;
     setText("#sync-status", connected ? connected + " SOURCE" + (connected === 1 ? "" : "S") + " CONNECTED" : "AWAITING IMPORT");
-    $("#source-list").innerHTML = snapshot.sources.map(function (source) {
+    /* The input-source chips moved into the Connect modal; guard in case the
+     * legacy sidebar list isn't present. */
+    var sourceList = $("#source-list");
+    if (sourceList) sourceList.innerHTML = snapshot.sources.map(function (source) {
       return '<div class="source-item' + (source.connected ? " connected" : "") + '"><i class="source-dot"></i><span>' + esc(displaySource(source.key)) + '</span></div>';
     }).join("");
   }
@@ -600,6 +607,10 @@
         window.__ORBIT_RING__ = function (id) { var p = personById(id); return p ? String(D.attrs(p).ring || "") : null; };
         window.__ORBIT_DRAGTO__ = function (id, x, y) { try { var n = state.network.body.nodes[id]; n.x = x; n.y = y; if (n.setX) { n.setX(x); n.setY(y); } applyNodeDrop([id]); return __ORBIT_RING__(id); } catch (e) { return "err:" + e.message; } };
         window.__ORBIT_CYCLE__ = function (dir) { cycleConnection(dir); return state.selectedId; };
+        window.__ORBIT_DELETE__ = function (id) { removeContact(String(id)); return trashCount(); };
+        window.__ORBIT_TRASH__ = function () { return trashRead().map(function (r) { return { tid: r.tid, label: r.label, links: r.links.length }; }); };
+        window.__ORBIT_RESTORE__ = function (tid) { trashRestore(tid); return trashCount(); };
+        window.__ORBIT_PEOPLE__ = function () { return state.snapshot ? state.snapshot.entities.filter(D.isPerson).length : 0; };
         window.__ORBIT_NODEAT__ = function (id) { try { var d = state.network.canvasToDOM(state.network.getPositions([id])[id]); return state.network.getNodeAt(d); } catch (e) { return "err:" + e.message; } };
       }
     } else {
@@ -664,10 +675,17 @@
     renderProfile(profile);
     state.mobileView = "profile";
     syncMobileNav();
-    $("#person-dossier").hidden = false;
-    $("#person-dossier").setAttribute("aria-hidden", "false");
+    var panel = $("#person-dossier");
+    panel.hidden = false;
+    panel.setAttribute("aria-hidden", "false");
+    panel.setAttribute("data-selected", "true");
   }
-  function closeDossier() { state.selectedId = ""; state.profileTab = "summary"; state.mobileView = "network"; syncMobileNav(); $("#person-dossier").hidden = true; $("#person-dossier").setAttribute("aria-hidden", "true"); if (state.store) renderGraph(state.snapshot); }
+  function closeDossier() {
+    state.selectedId = ""; state.profileTab = "summary"; state.mobileView = "network"; syncMobileNav();
+    var panel = $("#person-dossier");
+    panel.hidden = true; panel.setAttribute("aria-hidden", "true"); panel.removeAttribute("data-selected");
+    if (state.store) renderGraph(state.snapshot);
+  }
 
   /* ---- Undo / redo (snapshot the vault before each edit, SOLAR model) ---- */
   function cloneCase() {
@@ -1008,11 +1026,18 @@
   function deleteSelectedIds() {
     var ids = Object.keys(state.selectedIds); if (!ids.length || !state.store) return;
     pushUndo();
-    ids.forEach(function (id) { delete state.pinned[id]; delete state.positions[id]; if (state.store.removeEntity) state.store.removeEntity(String(id), { defer: true }); });
+    var list = trashRead();
+    ids.forEach(function (id) {
+      var record = captureForTrash(id); if (record) list.unshift(record);
+      delete state.pinned[id]; delete state.positions[id]; delete state.ringAngle[id];
+      if (state.store.removeEntity) state.store.removeEntity(String(id), { defer: true });
+    });
+    trashWrite(list);
     state.store.merge({ entities: [], links: [] }); /* one persist + re-render */
     state.selectedIds = {};
     render();
-    setText("#sync-status", ids.length + " CONTACT" + (ids.length === 1 ? "" : "S") + " DELETED");
+    updateTrashButton();
+    setText("#sync-status", ids.length + " MOVED TO RECYCLE BIN");
   }
   /* Mouse: left-drag empty canvas = box select; right-drag = pan (SOLAR model).
    * Touch keeps vis's one-finger pan; long-press opens the menu. */
@@ -1075,7 +1100,7 @@
     if (currentRing) items.push({ label: "Unpin from ring", fn: function () { clearRing(id); } });
     items.push({ label: pinned ? "Unpin position" : "Pin position", fn: function () { togglePin(id); } });
     items.push("-");
-    items.push({ label: "Delete contact", danger: true, fn: function () { if (window.confirm("Delete “" + (person.label || "this contact") + "” and its relationships?")) removeContact(id); } });
+    items.push({ label: "Delete contact", danger: true, fn: function () { removeContact(id); } });
     showCtxMenu(x, y, items);
   }
   function meCtxMenu(x, y) {
@@ -1207,19 +1232,74 @@
     render();
     setText("#sync-status", "PHOTO REMOVED");
   }
+  /* ---- Recycle bin: delete is frictionless (no prompt) but reversible. A
+   * deleted person + their notes, links and pinned position are captured to a
+   * local bin so they can be restored or purged. ---- */
+  var TRASH_KEY = "orbit_trash_v1";
+  function trashRead() { try { var v = JSON.parse(window.localStorage.getItem(TRASH_KEY) || "[]"); return Array.isArray(v) ? v : []; } catch (e) { return []; } }
+  function trashWrite(list) { try { window.localStorage.setItem(TRASH_KEY, JSON.stringify(list)); } catch (e) {} }
+  function contribsOf(entity) { return entity.contribs || (entity.contrib ? [entity.contrib] : []); }
+  function captureForTrash(id) {
+    id = String(id);
+    var snap = state.snapshot; if (!snap) return null;
+    var entity = snap.entities.find(function (e) { return String(e.id) === id; });
+    if (!entity) return null;
+    var owned = snap.entities.filter(function (e) { return String(e.id) !== id && contribsOf(e).indexOf("ent:" + id) !== -1; });
+    var removed = Object.create(null); removed[id] = true; owned.forEach(function (e) { removed[String(e.id)] = true; });
+    var links = snap.links.filter(function (l) { return removed[normaliseId(l.from)] || removed[normaliseId(l.to)]; });
+    return { tid: id + "|" + Date.now(), id: id, label: entity.label || "Unnamed", deletedAt: new Date().toISOString(), entities: [entity].concat(owned), links: links, pinned: !!state.pinned[id], position: state.positions[id] || null, ringAngle: state.ringAngle[id] != null ? state.ringAngle[id] : null };
+  }
+  function trashCount() { return trashRead().length; }
+  function updateTrashButton() {
+    var n = trashCount(), btn = $('[data-action="recycle-bin"]'), badge = $("#recycle-count");
+    if (badge) { badge.textContent = n ? String(n) : ""; badge.hidden = !n; }
+    if (btn) btn.setAttribute("title", n ? "Recycle bin (" + n + ")" : "Recycle bin (empty)");
+  }
   function removeContact(id) {
     if (!state.store) return;
+    id = String(id);
+    var record = captureForTrash(id);
     pushUndo();
-    if (String(id) === state.selectedId) closeDossier();
-    delete state.pinned[String(id)];
-    delete state.positions[String(id)];
-    /* Hard remove works for every contact, including ones imported before the
-     * per-entity contrib existed; fall back to withdraw only if unavailable. */
-    if (state.store.removeEntity) state.store.removeEntity(String(id));
-    else if (state.store.withdraw) state.store.withdraw("ent:" + String(id));
+    if (id === state.selectedId) closeDossier();
+    delete state.pinned[id]; delete state.positions[id]; delete state.ringAngle[id];
+    if (state.store.removeEntity) state.store.removeEntity(id);
+    else if (state.store.withdraw) state.store.withdraw("ent:" + id);
+    if (record) { var list = trashRead(); list.unshift(record); trashWrite(list); }
     render();
-    setText("#sync-status", "CONTACT DELETED");
+    updateTrashButton();
+    setText("#sync-status", record ? "MOVED TO RECYCLE BIN" : "CONTACT DELETED");
   }
+  function trashRestore(tid) {
+    var list = trashRead(), idx = -1;
+    for (var i = 0; i < list.length; i++) if (list[i].tid === tid) { idx = i; break; }
+    if (idx === -1 || !state.store) return;
+    var record = list[idx];
+    pushUndo();
+    state.store.merge({ entities: record.entities, links: record.links });
+    if (record.pinned) state.pinned[record.id] = true;
+    if (record.position) state.positions[record.id] = record.position;
+    if (record.ringAngle != null) state.ringAngle[record.id] = record.ringAngle;
+    list.splice(idx, 1); trashWrite(list);
+    render(); updateTrashButton(); renderTrashModal();
+    setText("#sync-status", "RESTORED · " + String(record.label).toUpperCase());
+  }
+  function trashPurge(tid) { trashWrite(trashRead().filter(function (r) { return r.tid !== tid; })); updateTrashButton(); renderTrashModal(); setText("#sync-status", "REMOVED FROM RECYCLE BIN"); }
+  function trashClear() { trashWrite([]); updateTrashButton(); renderTrashModal(); setText("#sync-status", "RECYCLE BIN EMPTIED"); }
+  function renderTrashModal() {
+    var listEl = $("#recycle-list"), emptyEl = $("#recycle-empty"), clearBtn = $('[data-action="empty-bin"]');
+    if (!listEl) return;
+    var list = trashRead();
+    if (emptyEl) emptyEl.hidden = list.length > 0;
+    if (clearBtn) clearBtn.disabled = !list.length;
+    listEl.innerHTML = list.map(function (r) {
+      var meta = [formatDate(r.deletedAt), (r.links.length ? r.links.length + " link" + (r.links.length === 1 ? "" : "s") : "no links")].filter(Boolean).join(" · ");
+      return '<div class="recycle-row"><span class="recycle-row-copy"><strong>' + esc(r.label) + '</strong><span>' + esc(meta) + '</span></span>' +
+        '<span class="recycle-row-actions"><button type="button" class="toolbar-button" data-restore="' + esc(r.tid) + '">Restore</button>' +
+        '<button type="button" class="toolbar-button danger" data-purge="' + esc(r.tid) + '">Delete forever</button></span></div>';
+    }).join("");
+  }
+  function openRecycleBin() { renderTrashModal(); var m = $("#recycle-modal"); if (m) { m.hidden = false; var c = m.querySelector("[data-action=close-recycle]"); if (c) c.focus(); } }
+  function closeRecycleBin() { var m = $("#recycle-modal"); if (m) m.hidden = true; }
   function setFormValue(form, name, value) { if (form.elements[name]) form.elements[name].value = value == null ? "" : value; }
   function socialProfilesText(value) { return (Array.isArray(value) ? value : []).map(function (item) { return typeof item === "string" ? item : (item.platform ? item.platform + ": " : "") + (item.value || item.handle || item.url || ""); }).join("\n"); }
   function openModal(id) {
@@ -1558,7 +1638,7 @@
     $('[data-action="add-context"]').addEventListener("click", function () { openRecord("fact"); });
     $('[data-action="log-interaction"]').addEventListener("click", function () { openRecord("interaction"); });
     $('[data-action="edit-person"]').addEventListener("click", function () { if (state.selectedId) openModal(state.selectedId); });
-    $('[data-action="delete-contact"]').addEventListener("click", function () { if (!state.selectedId) return; var p = personById(state.selectedId); if (window.confirm("Delete “" + (p && p.label || "this contact") + "” and its relationships?")) removeContact(state.selectedId); });
+    $('[data-action="delete-contact"]').addEventListener("click", function () { if (state.selectedId) removeContact(state.selectedId); });
     $('[data-action="mobile-capture"]').addEventListener("click", function () { if (state.selectedId) openRecord("interaction"); else openModal(); });
     $$('[data-mobile-view]').forEach(function (button) { button.addEventListener("click", function () { setMobileView(button.getAttribute("data-mobile-view")); }); });
     $('[data-action="close-dossier"]').addEventListener("click", closeDossier);
@@ -1578,6 +1658,11 @@
     $$('[data-action="recenter"]').forEach(function (button) { button.addEventListener("click", recenterView); });
     $$('[data-action="theme"]').forEach(function (button) { button.addEventListener("click", function () { var r = button.getBoundingClientRect(); showThemePicker(r.left, r.bottom + 6); }); });
     $$('[data-action="layout"]').forEach(function (button) { button.addEventListener("click", function () { var r = button.getBoundingClientRect(); showLayoutPicker(r.left, r.bottom + 6); }); });
+    $$('[data-action="recycle-bin"]').forEach(function (button) { button.addEventListener("click", openRecycleBin); });
+    $$('[data-action="close-recycle"]').forEach(function (button) { button.addEventListener("click", closeRecycleBin); });
+    var emptyBin = $('[data-action="empty-bin"]'); if (emptyBin) emptyBin.addEventListener("click", trashClear);
+    var recycleList = $("#recycle-list"); if (recycleList) recycleList.addEventListener("click", function (event) { var t = event.target.closest("[data-restore],[data-purge]"); if (!t) return; if (t.hasAttribute("data-restore")) trashRestore(t.getAttribute("data-restore")); else trashPurge(t.getAttribute("data-purge")); });
+    updateTrashButton();
     state.layout = loadLayout();
     setText("#layout-tool-label", layoutMeta(state.layout).label);
     applyBgTheme(loadBgTheme());
@@ -1619,7 +1704,7 @@
       if (state.selectedEdge) { clearEdgeSelection(); return; }
       var empty = $("#network-empty");
       if (empty && !empty.hidden && !visibleModal()) { dismissEmpty(); return; }
-      closeModal(); closeRecord(); closeVault(); closeImport(); closeAccountModal(); closeConnections(); closeDossier();
+      closeModal(); closeRecord(); closeVault(); closeImport(); closeAccountModal(); closeConnections(); closeRecycleBin(); closeDossier();
     });
   }
   function startWorkspace() {

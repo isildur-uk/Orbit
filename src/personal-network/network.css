@@ -563,3 +563,39 @@ body.is-panel-resizing{cursor:col-resize;user-select:none}
 .reltype-item{display:block;width:100%;padding:8px 10px;border:1px solid transparent;background:transparent;color:var(--network-text);font-family:var(--network-font);font-size:12.5px;text-align:left;cursor:pointer}
 .reltype-item:hover,.reltype-item:focus-visible{border-color:var(--network-accent);background:rgba(218,41,28,.1);outline:0}
 .reltype-custom{color:var(--network-muted);border-top:1px solid rgba(255,255,255,.08);margin-top:4px}
+
+/* ── Option A: profile lives in the LEFT column; stats moved to toolbar/Connect ── */
+.toolbar-count{font-family:var(--network-mono);font-size:10px;letter-spacing:.08em;color:var(--network-faint);white-space:nowrap}
+.dossier-placeholder{display:none;flex-direction:column;gap:11px;padding:30px 2px;color:var(--network-muted)}
+.dossier-placeholder svg{color:var(--network-faint)}
+.dossier-placeholder strong{color:var(--network-text);font-size:15px;font-weight:600;letter-spacing:-.01em}
+.dossier-placeholder span{font-size:12px;line-height:1.55;max-width:34ch}
+#person-dossier:not([data-selected]) > *:not(.dossier-placeholder):not(.dossier-close){display:none}
+#person-dossier:not([data-selected]) .dossier-placeholder{display:flex}
+
+@media (min-width:721px){
+  .network-app{grid-template-columns:var(--intel-w,360px) minmax(0,1fr);grid-template-rows:auto minmax(0,1fr)}
+  .intel-panel{grid-column:1;grid-row:1;padding-bottom:0}
+  .intel-panel .identity-lockup{padding-bottom:26px}
+  .workspace{grid-column:2;grid-row:1 / span 2}
+  .person-dossier{position:static;grid-column:1;grid-row:2;width:auto;max-width:none;max-height:none;height:100%;min-height:0;top:auto;right:auto;bottom:auto;left:auto;overflow:auto;padding:20px 28px 30px;z-index:auto;background:rgba(17,18,17,.94);border:0;border-right:1px solid var(--network-line);box-shadow:none}
+  .person-dossier[hidden]{display:block}
+  .person-dossier .dossier-close{display:none}
+}
+
+/* Recycle bin: bin-button count badge + restore list */
+.graph-tool[data-action="recycle-bin"]{position:relative}
+.recycle-count{position:absolute;top:-5px;right:-5px;min-width:15px;height:15px;padding:0 3px;display:grid;place-items:center;background:var(--network-accent);color:#fff;border-radius:8px;font-family:var(--network-mono);font-size:9px;line-height:1}
+.recycle-count[hidden]{display:none}
+.recycle-list{display:grid;gap:0;max-height:340px;overflow:auto;margin-top:16px}
+.recycle-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 0;border-bottom:1px solid var(--network-line-soft)}
+.recycle-row-copy{display:grid;gap:3px;min-width:0}
+.recycle-row-copy strong{color:var(--network-text);font-size:13px;font-weight:500}
+.recycle-row-copy span{color:var(--network-muted);font-family:var(--network-mono);font-size:9px}
+.recycle-row-actions{display:flex;gap:6px;flex:none}
+.recycle-row-actions .toolbar-button{height:32px;min-height:32px;padding:0 10px;font-size:10px}
+
+/* OAuth popup window: hide the app, show a minimal completing-sign-in message */
+html[data-oauth-popup] body>*{display:none!important}
+html[data-oauth-popup] body{display:grid;place-items:center;min-height:100dvh;background:var(--network-bg)}
+html[data-oauth-popup] body::after{content:"Completing sign-in…";color:var(--network-muted);font-family:var(--network-mono);font-size:12px;letter-spacing:.08em}

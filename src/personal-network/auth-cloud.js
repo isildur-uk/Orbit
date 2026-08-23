@@ -74,14 +74,32 @@
   /* Orbit's button names map to Supabase provider keys. LinkedIn's key is
    * "linkedin_oidc" (Sign In with LinkedIn using OpenID Connect). */
   var PROVIDER_KEYS = { google: "google", apple: "apple", facebook: "facebook", linkedin: "linkedin_oidc", linkedin_oidc: "linkedin_oidc" };
+  function openAuthPopup(url) {
+    var w = 480, h = 640;
+    var y = Math.max(0, Math.round((window.outerHeight - h) / 2 + (window.screenY || 0)));
+    var x = Math.max(0, Math.round((window.outerWidth - w) / 2 + (window.screenX || 0)));
+    return window.open(url, "orbit-oauth", "width=" + w + ",height=" + h + ",left=" + x + ",top=" + y);
+  }
   function signInWithProvider(provider, input) {
     provider = String(provider || "").toLowerCase();
     input = input || {};
     var providerKey = PROVIDER_KEYS[provider];
     if (!providerKey) return Promise.reject(new Error("That sign-in provider is not enabled for Orbit."));
+    /* Popup keeps the app in place: OAuth happens in a child window, and the
+     * session syncs back to this tab via Supabase's cross-tab broadcast (see the
+     * self-close handler below). Falls back to a full-page redirect if blocked. */
+    var usePopup = !!input.popup && typeof window.open === "function";
     return requireClient().then(function (supabaseClient) {
-      return supabaseClient.auth.signInWithOAuth({ provider: providerKey, options: { redirectTo: redirectTo(), scopes: input.scopes || undefined, queryParams: provider === "google" ? { access_type: "offline", prompt: "consent" } : undefined } });
-    }).then(function (result) { if (result.error) throw authError(result.error); return result.data; });
+      return supabaseClient.auth.signInWithOAuth({ provider: providerKey, options: { redirectTo: redirectTo(), scopes: input.scopes || undefined, skipBrowserRedirect: usePopup, queryParams: provider === "google" ? { access_type: "offline", prompt: "consent" } : undefined } });
+    }).then(function (result) {
+      if (result.error) throw authError(result.error);
+      if (usePopup && result.data && result.data.url) {
+        var popup = openAuthPopup(result.data.url);
+        if (!popup || popup.closed) { window.location.href = result.data.url; return { redirected: true }; }
+        return { popup: true };
+      }
+      return result.data;
+    });
   }
   function beginConnection(provider) {
     try { if (window.sessionStorage) window.sessionStorage.setItem("orbit_pending_connection", String(provider || "")); } catch (e) {}
@@ -105,6 +123,13 @@
   function hasAccounts() { return false; }
   function onChange(listener) { if (typeof listener !== "function") return function () {}; listeners.push(listener); return function () { var index = listeners.indexOf(listener); if (index !== -1) listeners.splice(index, 1); }; }
   if (client) client.auth.onAuthStateChange(function (_, session) { currentSession = session || null; currentAccount = accountFromUser(session && session.user); notify(); });
+  /* If this window IS the OAuth popup, close it once the session lands; the
+   * opener tab receives the session through Supabase's cross-tab broadcast. */
+  if (client && typeof window !== "undefined" && window.opener && window.name === "orbit-oauth") {
+    var popupClosed = false, closePopup = function () { if (popupClosed) return; popupClosed = true; try { window.close(); } catch (e) {} };
+    client.auth.onAuthStateChange(function (event) { if (event === "SIGNED_IN") setTimeout(closePopup, 250); });
+    setTimeout(closePopup, 6000);
+  }
 
   window.OrbitCloudAuth = { configured: !!client, ready: ready, createAccount: createAccount, signIn: signIn, signInWithProvider: signInWithProvider, beginConnection: beginConnection, consumeConnectionIntent: consumeConnectionIntent, providerToken: providerToken, updateProfile: updateProfile, signOut: signOut, current: current, hasAccounts: hasAccounts, onChange: onChange };
 })();

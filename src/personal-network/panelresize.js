@@ -9,7 +9,7 @@
  */
 (function () {
   "use strict";
-  var MIN = 240, MAX = 460, DEFAULT = 312, KEY = "orbit_intel_width_v1";
+  var MIN = 290, MAX = 520, DEFAULT = 360, KEY = "orbit_intel_width_v1";
 
   function init() {
     var app = document.getElementById("network-app");
@@ -103,7 +103,9 @@
     handle.addEventListener("dblclick", function () { apply(D_DEFAULT); try { localStorage.setItem(D_KEY, String(D_DEFAULT)); } catch (e) {} });
   }
 
-  function boot() { init(); initDossier(); }
+  /* The profile now shares the left column, so only the intel-sidebar resize
+   * (init) runs; the old right-dossier resize (initDossier) is retired. */
+  function boot() { init(); }
   window.OrbitPanelResize = { init: init, initDossier: initDossier };
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", boot);
   else boot();
