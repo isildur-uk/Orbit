@@ -440,7 +440,7 @@
   <script src="app.js?v=20260822-classify-pass"></script>
   <script src="panelresize.js?v=20260822-panelresize"></script>
   <script>
-    if (location.protocol === "http:" || location.protocol === "https:") {
+    if (!window.ORBIT_OFFLINE_BUILD && (location.protocol === "http:" || location.protocol === "https:")) {
       if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js?v=20260822-connections-pass").catch(function () {});
     }
   </script>
