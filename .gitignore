@@ -33,4 +33,6 @@ Thumbs.db
 desktop/src-tauri/gen/android/.gradle/
 desktop/src-tauri/gen/android/build/
 
+# Personal source data — real people, never committed
 contacts/
+IG Data/

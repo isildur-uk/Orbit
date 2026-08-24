@@ -637,6 +637,8 @@
   }
   /* Above this many people on screen the chart switches to its plain drawing. */
   var DENSE_AT = 150;
+  /* Past this many follow links the spokes are folded away by default. */
+  var FOLLOW_FOLD_AT = 40;
   /* "Person in your network" told you nothing you could not already see. The
    * tooltip now answers the question you hover to ask: who is this, how are we
    * connected, and how much is here. */
@@ -769,8 +771,13 @@
       var baseBorder = selected ? "#ffffff" : (overdue ? "#e08a3c" : (ringCol || (opportunity ? "#ff6a5e" : (organisation ? "#c9a24b" : (emailOnly ? "#6f8592" : (socialOnly ? "#8f7fa6" : (inner ? "#c98b84" : "#8a8a8a")))))));
       var photo = photoReady(D.attrs(person).photo) ? D.attrs(person).photo : "";
       var node = { id: String(person.id), label: String(person.label || "Unnamed person"), x: position.x, y: position.y, fixed: nodeFixed, size: selected ? 24 : (opportunity ? 14 : 9 + Math.round(summary.score / 20)), borderWidth: selected ? 4 : 1.4, color: { background: baseBg, border: baseBorder, highlight: { background: "#da291c", border: "#ffffff" }, hover: { background: baseBg, border: "#ffffff" } }, opacity: dimmed(focused), font: { color: selected ? "#ffffff" : "#e4e4e4", size: selected ? 16 : 12, face: "Inter Var", bold: selected, vadjust: -2, strokeWidth: selected ? 6 : 4, strokeColor: "#181818" }, shadow: selected ? { enabled: true, color: "rgba(255,255,255,.8)", size: 30, x: 0, y: 0 } : { enabled: true, color: "rgba(0,0,0,.5)", size: 7, x: 0, y: 2 }, title: nodeTooltip(person, summary, degrees, followState, tipTags) };
-      if (dense) { node.shape = organisation ? "square" : "dot"; node.shadow = { enabled: false }; node.font.strokeWidth = selected ? 4 : 0; }
-      else if (photo) { node.shape = "circularImage"; node.image = photo; node.size = selected ? 28 : 18; node.borderWidth = selected ? 4 : 2; if (ringCol && !selected) node.color.border = ringCol; }
+      /* A crowded chart drops the per-person photo — hundreds of distinct
+       * images is the part that costs — but keeps the icon chip, which is
+       * cached across everyone sharing an icon and a colour. A dense chart
+       * should still say what each node IS, rather than draw a field of
+       * identical bare circles and call it a network. */
+      if (dense) { node.shadow = { enabled: false }; node.font.strokeWidth = selected ? 4 : 0; }
+      if (!dense && photo) { node.shape = "circularImage"; node.image = photo; node.size = selected ? 28 : 18; node.borderWidth = selected ? 4 : 2; if (ringCol && !selected) node.color.border = ringCol; }
       else if (window.OrbitIcons) {
         var Icons = window.OrbitIcons;
         var iconKey = String(D.attrs(person).icon || Icons.defaultKey(kind));
@@ -784,6 +791,14 @@
       } else { node.shape = organisation ? "square" : "dot"; }
       nodes.push(node);
     });
+    /* Every Instagram follow runs from you to one account and nowhere else, so
+     * a large list draws hundreds of identical spokes through the middle of the
+     * chart. They say only "this came from Instagram", which the node's kind and
+     * colour already say, and they cost the readability of everything else.
+     * Past a crowd they are folded away and come back for whoever is selected. */
+    var followTotal = 0;
+    snapshot.links.forEach(function (link) { if (isFollowLink(link)) followTotal++; });
+    var foldFollows = followTotal > FOLLOW_FOLD_AT, foldedFollows = 0;
     var edges = snapshot.links.filter(function (link) {
       var from = normaliseId(link.from), to = normaliseId(link.to);
       return (from === D.ME_ID || byId[from]) && (to === D.ME_ID || byId[to]);
@@ -801,14 +816,29 @@
       var arrows = follows ? (mutual
         ? { to: { enabled: true, scaleFactor: 0.45 }, from: { enabled: true, scaleFactor: 0.45 } }
         : { to: { enabled: true, scaleFactor: 0.55 } }) : undefined;
-      var showLabel = !dense || onPath || (hasSelection && onSelection);
+      /* A relationship label on every edge at once is a wall of repeated text —
+       * 190 copies of "Mutual follow" tells you nothing. Labels belong to what
+       * is being looked at. */
+      var showLabel = onPath || (hasSelection && onSelection);
+      /* Folded follows stay in the graph so a selection can bring them back. */
+      var followFocus = pathSet ? !!onPath : (hasSelection && onSelection);
+      var foldThis = follows && foldFollows && !followFocus;
+      if (foldThis) foldedFollows++;
       /* A hand-set arrow overrides the follow arrows: it is the more deliberate
        * statement of the two. */
       var pointsTo = String(D.attrs(link).pointsTo || "");
       if (pointsTo === to) arrows = { to: { enabled: true, scaleFactor: 0.6 } };
       else if (pointsTo === from) arrows = { from: { enabled: true, scaleFactor: 0.6 } };
-      return { id: String(link.id), from: from, to: to, label: showLabel ? (relType || undefined) : undefined, arrows: arrows, width: onPath ? 3 : (onSelection && hasSelection ? 2.2 : (opportunity ? 2.6 : (touchesMe ? 1.3 : 1.1))), dashes: false, color: { color: onPath ? "rgba(255,255,255,.92)" : colour, highlight: opportunity ? "#da291c" : "#ffffff", hover: "#ffffff", opacity: onSelection ? 1 : 0.18 }, font: relType ? { color: "#cfcfcf", size: 10, face: "Inter Var", strokeWidth: 4, strokeColor: "#181818", align: "middle" } : undefined, smooth: dense ? false : { enabled: true, type: "continuous", roundness: .28 }, hidden: false };
+      return { id: String(link.id), from: from, to: to, label: showLabel ? (relType || undefined) : undefined, arrows: arrows, width: onPath ? 3 : (onSelection && hasSelection ? 2.2 : (opportunity ? 2.6 : (touchesMe ? 1.3 : 1.1))), dashes: false, color: { color: onPath ? "rgba(255,255,255,.92)" : colour, highlight: opportunity ? "#da291c" : "#ffffff", hover: "#ffffff", opacity: onSelection ? 1 : 0.18 }, font: relType ? { color: "#cfcfcf", size: 10, face: "Inter Var", strokeWidth: 4, strokeColor: "#181818", align: "middle" } : undefined, smooth: dense ? false : { enabled: true, type: "continuous", roundness: .28 }, hidden: foldThis };
     });
+    /* Folding without saying so reads as lost data. setStats() has already run
+     * for this frame, but a photo load can re-render on top of it, so the note
+     * is rewritten from scratch rather than appended to whatever is there. */
+    var countEl = $("#toolbar-count");
+    if (countEl) {
+      var plain = countEl.textContent.replace(/ · [\d,]+ follows folded$/, "");
+      countEl.textContent = foldedFollows ? plain + " · " + formatCount(foldedFollows) + " follows folded" : plain;
+    }
     /* Who else holds each identifier, so an expansion can show the overlap. */
     var sharedHolders = Object.create(null);
     if (Object.keys(state.expanded).length) {
